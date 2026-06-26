@@ -1,6 +1,8 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ARENA, TICK_MS } from "@shared/constants";
 import type { RoomStatePublic } from "@shared/types";
+import { MobileControls } from "../components/MobileControls";
+import { isTouchDevice } from "../utils/touchDevice";
 import { ClientGame } from "./clientGame";
 import { drawGame } from "./renderer";
 
@@ -16,6 +18,10 @@ export function GameCanvas({ roomState, onInput }: GameCanvasProps) {
   const inputTimerRef = useRef(0);
   const roomStateRef = useRef(roomState);
   roomStateRef.current = roomState;
+  const [touchControls] = useState(isTouchDevice);
+
+  const localPlayer = roomState.world?.players.find((p) => p.id === roomState.youId);
+  const eliminated = localPlayer?.eliminated ?? false;
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -69,11 +75,20 @@ export function GameCanvas({ roomState, onInput }: GameCanvasProps) {
   }, [roomState.world?.tick]);
 
   return (
-    <canvas
-      ref={canvasRef}
-      className="game-canvas"
-      width={ARENA.width}
-      height={ARENA.height}
-    />
+    <>
+      <canvas
+        ref={canvasRef}
+        className="game-canvas"
+        width={ARENA.width}
+        height={ARENA.height}
+      />
+      {touchControls && (
+        <MobileControls
+          game={gameRef.current}
+          canvasRef={canvasRef}
+          disabled={eliminated}
+        />
+      )}
+    </>
   );
 }

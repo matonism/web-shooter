@@ -41,6 +41,14 @@ export class ClientGame {
   private mouseWorld = new Vec2(0, 0);
   private firing = false;
 
+  private touch = {
+    enabled: false,
+    moveX: 0,
+    moveY: 0,
+    aimAngle: 0,
+    firing: false,
+  };
+
   /** Predicted local position */
   private predX = 0;
   private predY = 0;
@@ -55,6 +63,37 @@ export class ClientGame {
 
   setLocalId(id: string) {
     this.localId = id;
+  }
+
+  enableTouchControls(enabled: boolean) {
+    this.touch.enabled = enabled;
+  }
+
+  setTouchControls(partial: {
+    moveX?: number;
+    moveY?: number;
+    aimAngle?: number;
+    firing?: boolean;
+  }) {
+    Object.assign(this.touch, partial);
+  }
+
+  getTouchAimAngle(): number {
+    return this.touch.aimAngle;
+  }
+
+  /** Player position in viewport coordinates for mobile aim. */
+  getLocalScreenPosition(canvas: HTMLCanvasElement | null): { x: number; y: number } | null {
+    if (!canvas) return null;
+    const local = this.getRenderState()?.players.find((p) => p.isLocal);
+    if (!local) return null;
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = rect.width / ARENA.width;
+    const scaleY = rect.height / ARENA.height;
+    return {
+      x: rect.left + local.x * scaleX,
+      y: rect.top + local.y * scaleY,
+    };
   }
 
   bindInput(canvas: HTMLCanvasElement) {
@@ -100,15 +139,25 @@ export class ClientGame {
   buildInput(): PlayerInput {
     let dx = 0;
     let dy = 0;
-    if (this.keys.up) dy -= 1;
-    if (this.keys.down) dy += 1;
-    if (this.keys.left) dx -= 1;
-    if (this.keys.right) dx += 1;
+    let angle: number;
+    let fire: boolean;
 
-    const angle = Math.atan2(
-      this.mouseWorld.y - this.predY,
-      this.mouseWorld.x - this.predX,
-    );
+    if (this.touch.enabled) {
+      dx = this.touch.moveX;
+      dy = this.touch.moveY;
+      angle = this.touch.aimAngle;
+      fire = this.touch.firing;
+    } else {
+      if (this.keys.up) dy -= 1;
+      if (this.keys.down) dy += 1;
+      if (this.keys.left) dx -= 1;
+      if (this.keys.right) dx += 1;
+      angle = Math.atan2(
+        this.mouseWorld.y - this.predY,
+        this.mouseWorld.x - this.predX,
+      );
+      fire = this.firing;
+    }
 
     this.inputSeq += 1;
     return {
@@ -116,7 +165,7 @@ export class ClientGame {
       dx,
       dy,
       angle,
-      fire: this.firing,
+      fire,
     };
   }
 
@@ -253,6 +302,7 @@ export class ClientGame {
     this.predX = p.x;
     this.predY = p.y;
     this.predAngle = p.angle;
+    this.touch.aimAngle = p.angle;
     this.corrX = 0;
     this.corrY = 0;
   }

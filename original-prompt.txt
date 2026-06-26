@@ -1,0 +1,63 @@
+Neon Blasters: High-Performance Architecture
+
+1. Concept
+
+A high-performance, real-time 3v3 top-down arena shooter using a Node.js/Socket.io authoritative broadcast model.
+
+2. Technical Stack
+
+Frontend: React, Typescript, HTML5 Canvas.
+
+Backend: Node.js, Socket.io.
+
+Communication: WebSocket (Socket.io).
+
+3. Network Architecture
+
+Server Tick Rate (30Hz): The server maintains a strict 33ms game loop. It broadcasts the "World State" (all player positions/bullets) to all clients at 30fps.
+
+Client-Side Prediction: Local player input is applied to the local state immediately (0ms latency). The server sends updates that validate/correct this position if needed.
+
+State Interpolation: Remote players are NOT rendered instantly at the packet position. Instead, the client "lerps" (linear interpolates) them toward the target position over the 33ms window, creating smooth, fluid movement despite network jitter.
+
+4. The "Golden" Prompt
+
+Copy and paste this into your coding assistant:
+
+"Act as a senior game developer. Build a 3v3 real-time top-down shooter using React (Frontend) and Node.js + Socket.io (Backend).
+
+Requirements:
+
+Architecture:
+
+Server: A Node.js Express server running Socket.io. Implement a fixed-step 30Hz game loop (setInterval @ 33ms).
+
+Client: A React/Canvas interface.
+
+Network/Performance Logic (CRITICAL):
+
+Tick Rate: The server broadcasts the full state to all clients at 30Hz.
+
+Prediction: The local client must apply input (WASD) immediately to the local player object (0ms delay).
+
+Interpolation: For all other remote players, implement linear interpolation (lerp) on the client side to smooth out the movement between server packets.
+
+Efficiency: Keep packet payloads lean (send only necessary X/Y/Angle/Bullet data).
+
+Game Mechanics:
+
+WASD movement, Mouse aim, Click to fire.
+
+Server-side collision: The server should validate bullet hits to prevent client-side hacking.
+
+Game state: Handle teams (Red/Blue), HP management, and elimination state.
+
+UI/UX:
+
+Simple Lobby for team selection.
+
+Health bar HUD and 'Eliminated' status overlay.
+
+Smooth rendering of bullets and player rotations.
+
+Please prioritize low-latency mechanics and robust reconnection handling for the Socket.io instances."

@@ -3,6 +3,7 @@ import { Lobby } from "./components/Lobby";
 import { Hud } from "./components/Hud";
 import { GameCanvas } from "./game/GameCanvas";
 import { useSocket } from "./hooks/useSocket";
+import { isTouchDevice } from "./utils/touchDevice";
 
 export default function App() {
   const {
@@ -95,7 +96,10 @@ export default function App() {
             </button>
           </div>
 
-          <p className="hint">WASD move · Mouse aim · Click to fire · Up to 6 players</p>
+          <p className="hint">
+            WASD move · Mouse aim · Click to fire · Up to 6 players
+            {isTouchDevice() && " · Mobile: left stick + right drag to aim/fire"}
+          </p>
         </div>
       )}
 
