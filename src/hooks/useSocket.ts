@@ -7,7 +7,7 @@ import type {
   ServerToClientEvents,
 } from "@shared/types";
 
-const REJOIN_KEY = "neonBlastersRejoin";
+const REJOIN_KEY = "shooterSnipesRejoin";
 
 const socketUrl = import.meta.env.PROD
   ? window.location.origin

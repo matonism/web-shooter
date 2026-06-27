@@ -422,5 +422,5 @@ httpServer.on("error", (err: NodeJS.ErrnoException) => {
 });
 
 httpServer.listen(PORT, "0.0.0.0", () => {
-  console.log(`Neon Blasters server on :${PORT} (${isProd ? "prod" : "dev"})`);
+  console.log(`Shooter Snipes server on :${PORT} (${isProd ? "prod" : "dev"})`);
 });

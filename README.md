@@ -1,4 +1,4 @@
-# Neon Blasters
+# Shooter Snipes
 
 A browser-based 3v3 top-down arena shooter for up to six players. Create or join a room, pick Red or Blue, and fight in real time over WebSockets. The server runs an authoritative 30 Hz game loop; clients predict local movement and interpolate remote players for smooth play.
 

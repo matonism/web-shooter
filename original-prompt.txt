@@ -1,4 +1,4 @@
-Neon Blasters: High-Performance Architecture
+Shooter Snipes: High-Performance Architecture
 
 1. Concept
 

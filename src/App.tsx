@@ -39,7 +39,7 @@ export default function App() {
   return (
     <div className="app">
       <header className="app-header">
-        <h1 className="app-title">Neon Blasters</h1>
+        <h1 className="app-title">Shooter Snipes</h1>
         <div className="app-header-actions">
           {roomState && (
             <button type="button" className="btn-leave" onClick={leaveRoom}>
