@@ -2,6 +2,8 @@ import type { GameId, GamePickMode } from "../shared/games.ts";
 import { GAME_CATALOG, getGameDef } from "../shared/games.ts";
 import { teamSize } from "../shared/constants.ts";
 import type { RaceSettings } from "../shared/raceSettings.ts";
+import type { ShooterBotSettings } from "../shared/shooterBots.ts";
+import { canStartShooterWithBots } from "../shared/shooterBots.ts";
 import type { LobbyPlayer } from "../shared/types.ts";
 
 export interface GamePickState {
@@ -10,6 +12,7 @@ export interface GamePickState {
   gameVotes: Map<string, GameId>;
   soloMode: boolean;
   raceSettings: RaceSettings;
+  shooterBotSettings: ShooterBotSettings;
 }
 
 export function resolveGameId(state: GamePickState): GameId {
@@ -93,6 +96,9 @@ export function canStartRoom(state: GamePickState, lobby: LobbyPlayer[]): boolea
   }
 
   if (def.requiresTeams) {
+    if (gameId === "shooter") {
+      return canStartShooterWithBots(lobby, state.shooterBotSettings);
+    }
     const red = teamSize(lobby, "red");
     const blue = teamSize(lobby, "blue");
     return red >= 1 && blue >= 1 && lobby.filter((p) => p.team).length >= 2;

@@ -8,6 +8,7 @@ import type {
   RejoinSession,
   RoomStatePublic,
   ShooterSettings,
+  ShooterBotSettings,
   ServerToClientEvents,
 } from "@shared/types";
 
@@ -140,12 +141,20 @@ export function useSocket() {
     getSocket().emit("setSoloMode", { enabled });
   };
 
+  const setSoloBotCount = (count: number) => {
+    getSocket().emit("setSoloBotCount", { count });
+  };
+
   const setRaceSettings = (settings: Partial<RaceSettings>) => {
     getSocket().emit("setRaceSettings", { settings });
   };
 
   const setShooterSettings = (settings: Partial<ShooterSettings>) => {
     getSocket().emit("setShooterSettings", { settings });
+  };
+
+  const setShooterBotSettings = (settings: Partial<ShooterBotSettings>) => {
+    getSocket().emit("setShooterBotSettings", { settings });
   };
 
   const startGame = () => getSocket().emit("startGame");
@@ -179,8 +188,10 @@ export function useSocket() {
     setGamePickMode,
     voteGame,
     setSoloMode,
+    setSoloBotCount,
     setRaceSettings,
     setShooterSettings,
+    setShooterBotSettings,
     startGame,
     backToLobby,
     restartRound,

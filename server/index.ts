@@ -8,6 +8,12 @@ import { MAX_PER_TEAM, MAX_PLAYERS, TICK_MS } from "../shared/constants.ts";
 import type { GameId } from "../shared/games.ts";
 import { DEFAULT_RACE_SETTINGS } from "../shared/raceSettings.ts";
 import { DEFAULT_SHOOTER_SETTINGS, mergeShooterSettings } from "../shared/shooterSettings.ts";
+import {
+  DEFAULT_SHOOTER_BOT_SETTINGS,
+  maxHumansOnTeam,
+  mergeShooterBotSettings,
+} from "../shared/shooterBots.ts";
+import { clampSoloBotCount, defaultSoloBotCount } from "../shared/solo.ts";
 import type {
   ClientToServerEvents,
   GamePhase,
@@ -16,6 +22,7 @@ import type {
   RaceSettings,
   RoomStatePublic,
   ServerToClientEvents,
+  ShooterBotSettings,
   ShooterSettings,
   Team,
 } from "../shared/types.ts";
@@ -28,7 +35,7 @@ import {
 } from "./gamePick.ts";
 import { GameSimulation } from "./gameSimulation.ts";
 import { RaceSimulation } from "./raceSimulation.ts";
-import { addSoloBots } from "./soloBots.ts";
+import { addShooterFillBots, addSoloBots } from "./soloBots.ts";
 import type { RoomSimulation } from "./roomSimulation.ts";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -65,8 +72,10 @@ interface Room {
   gamePickMode: GamePickMode;
   gameVotes: Map<string, GameId>;
   soloMode: boolean;
+  soloBotCount: number;
   raceSettings: RaceSettings;
   shooterSettings: ShooterSettings;
+  shooterBotSettings: ShooterBotSettings;
   playingGameId: GameId | null;
   simulation: RoomSimulation | null;
   gameLoop?: ReturnType<typeof setInterval>;
@@ -146,8 +155,10 @@ function publicState(room: Room, youId: string): RoomStatePublic {
     gamePickMode: room.gamePickMode,
     gameVotes: gameVotesRecord(room.gameVotes),
     soloMode: room.soloMode,
+    soloBotCount: room.soloBotCount,
     raceSettings: room.raceSettings,
     shooterSettings: room.shooterSettings,
+    shooterBotSettings: room.shooterBotSettings,
     playingGameId: room.playingGameId,
     youId,
     yourToken: you?.token ?? "",
@@ -214,7 +225,18 @@ function bootstrapSimulation(room: Room, gameId: GameId) {
       room.simulation,
       gameId,
       [...room.players.values()].map((p) => ({ team: p.team })),
+      room.soloBotCount,
       gameId === "race" ? room.raceSettings : undefined,
+    );
+  } else if (
+    gameId === "shooter" &&
+    room.simulation instanceof GameSimulation &&
+    room.shooterBotSettings.fillMode !== "off"
+  ) {
+    addShooterFillBots(
+      room.simulation,
+      [...room.players.values()].map((p) => ({ team: p.team })),
+      room.shooterBotSettings,
     );
   }
   room.simulation.reset();
@@ -321,8 +343,10 @@ io.on("connection", (socket) => {
       gamePickMode: "host",
       gameVotes: new Map(),
       soloMode: false,
+      soloBotCount: defaultSoloBotCount("shooter"),
       raceSettings: { ...DEFAULT_RACE_SETTINGS },
       shooterSettings: { ...DEFAULT_SHOOTER_SETTINGS },
+      shooterBotSettings: { ...DEFAULT_SHOOTER_BOT_SETTINGS, customBots: { ...DEFAULT_SHOOTER_BOT_SETTINGS.customBots } },
       playingGameId: null,
       simulation: null,
       lastActivityAt: Date.now(),
@@ -391,10 +415,15 @@ io.on("connection", (socket) => {
       return;
     }
 
+    const teamCap =
+      preview === "shooter" && !room.soloMode
+        ? maxHumansOnTeam(team, room.shooterBotSettings)
+        : MAX_PER_TEAM;
+
     const onOtherTeam = [...room.players.values()].filter(
       (pl) => pl.team === team && pl.id !== socket.id,
     ).length;
-    if (onOtherTeam >= MAX_PER_TEAM) {
+    if (onOtherTeam >= teamCap) {
       socket.emit("errorMsg", `${team} team is full.`);
       return;
     }
@@ -410,6 +439,7 @@ io.on("connection", (socket) => {
     if (!room || room.hostId !== socket.id || room.phase !== "lobby") return;
     if (room.gamePickMode !== "host") return;
     room.selectedGameId = gameId;
+    room.soloBotCount = clampSoloBotCount(gameId, room.soloBotCount);
     touchRoom(room);
     broadcastRoom(room);
   });
@@ -449,6 +479,18 @@ io.on("connection", (socket) => {
     broadcastRoom(room);
   });
 
+  socket.on("setSoloBotCount", ({ count }) => {
+    const code = socketRoom.get(socket.id);
+    if (!code) return;
+    const room = getRoom(code);
+    if (!room || room.hostId !== socket.id || room.phase !== "lobby") return;
+    if (room.players.size > 1) return;
+    const gameId = previewGameId(room) ?? room.selectedGameId;
+    room.soloBotCount = clampSoloBotCount(gameId, count);
+    touchRoom(room);
+    broadcastRoom(room);
+  });
+
   socket.on("setRaceSettings", ({ settings }) => {
     const code = socketRoom.get(socket.id);
     if (!code) return;
@@ -466,6 +508,17 @@ io.on("connection", (socket) => {
     const room = getRoom(code);
     if (!room || room.hostId !== socket.id || room.phase !== "lobby") return;
     room.shooterSettings = mergeShooterSettings(room.shooterSettings, settings);
+    touchRoom(room);
+    broadcastRoom(room);
+  });
+
+  socket.on("setShooterBotSettings", ({ settings }) => {
+    const code = socketRoom.get(socket.id);
+    if (!code) return;
+    const room = getRoom(code);
+    if (!room || room.hostId !== socket.id || room.phase !== "lobby") return;
+    if (room.soloMode) return;
+    room.shooterBotSettings = mergeShooterBotSettings(room.shooterBotSettings, settings);
     touchRoom(room);
     broadcastRoom(room);
   });
@@ -492,7 +545,12 @@ io.on("connection", (socket) => {
 
     if (!room.soloMode) {
       const sim = createSimulation(gameId);
-      if (!sim.canStart(lobby)) {
+      if (gameId === "shooter" && room.shooterBotSettings.fillMode !== "off") {
+        if (!canStartRoom(room, lobby)) {
+          socket.emit("errorMsg", "Not enough players (or teams) to start.");
+          return;
+        }
+      } else if (!sim.canStart(lobby)) {
         socket.emit("errorMsg", "Not enough players (or teams) to start.");
         return;
       }

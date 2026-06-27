@@ -4,12 +4,13 @@ export type GamePhase = "lobby" | "playing" | "finished";
 import type { GameId, GamePickMode } from "./games.ts";
 import type { RaceSettings } from "./raceSettings.ts";
 import { DEFAULT_RACE_SETTINGS } from "./raceSettings.ts";
+import type { ShooterBotSettings } from "./shooterBots.ts";
 import type { ShooterSettings } from "./shooterSettings.ts";
 import { DEFAULT_SHOOTER_SETTINGS } from "./shooterSettings.ts";
 import type { BulletKind } from "./constants.ts";
 import type { PowerupKind } from "./powerups.ts";
 
-export type { BulletKind, PowerupKind, GameId, GamePickMode, RaceSettings, ShooterSettings };
+export type { BulletKind, PowerupKind, GameId, GamePickMode, RaceSettings, ShooterSettings, ShooterBotSettings };
 
 export interface Vec2 {
   x: number;
@@ -195,10 +196,14 @@ export interface RoomStatePublic {
   gameVotes: Record<string, GameId>;
   /** Practice vs AI — host can start alone */
   soloMode: boolean;
+  /** AI opponents in solo practice (per selected game limits) */
+  soloBotCount: number;
   /** Platform race options (lobby + in-game) */
   raceSettings: RaceSettings;
   /** Arena shooter tuning (lobby + in-game) */
   shooterSettings: ShooterSettings;
+  /** Mixed human/AI teams for Arena Shooter */
+  shooterBotSettings: ShooterBotSettings;
   /** Set while playing or after finish */
   playingGameId: GameId | null;
   /** Present when phase is playing or finished */
@@ -243,12 +248,20 @@ export interface SetSoloModePayload {
   enabled: boolean;
 }
 
+export interface SetSoloBotCountPayload {
+  count: number;
+}
+
 export interface SetRaceSettingsPayload {
   settings: Partial<RaceSettings>;
 }
 
 export interface SetShooterSettingsPayload {
   settings: Partial<ShooterSettings>;
+}
+
+export interface SetShooterBotSettingsPayload {
+  settings: Partial<ShooterBotSettings>;
 }
 
 export interface ClientToServerEvents {
@@ -260,8 +273,10 @@ export interface ClientToServerEvents {
   setGamePickMode: (payload: SetGamePickModePayload) => void;
   voteGame: (payload: VoteGamePayload) => void;
   setSoloMode: (payload: SetSoloModePayload) => void;
+  setSoloBotCount: (payload: SetSoloBotCountPayload) => void;
   setRaceSettings: (payload: SetRaceSettingsPayload) => void;
   setShooterSettings: (payload: SetShooterSettingsPayload) => void;
+  setShooterBotSettings: (payload: SetShooterBotSettingsPayload) => void;
   startGame: () => void;
   backToLobby: () => void;
   restartRound: () => void;

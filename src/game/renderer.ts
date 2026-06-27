@@ -135,6 +135,29 @@ function drawArena(ctx: CanvasRenderingContext2D) {
   ctx.strokeRect(2, 2, width - 4, height - 4);
 }
 
+function drawPlayerHealthBar(ctx: CanvasRenderingContext2D, p: RenderPlayer) {
+  if (p.eliminated) return;
+
+  const colors = TEAM_COLORS[p.team];
+  const r = PLAYER.radius;
+  const barW = 40;
+  const barH = 6;
+  const bx = p.x - barW / 2;
+  const by = p.y - r - 14;
+  const pct = Math.max(0, Math.min(1, p.hp / p.maxHp));
+
+  ctx.fillStyle = "rgba(0,0,0,0.55)";
+  ctx.fillRect(bx, by, barW, barH);
+  ctx.strokeStyle = p.isLocal ? "rgba(255,255,255,0.45)" : "rgba(255,255,255,0.2)";
+  ctx.lineWidth = 1;
+  ctx.strokeRect(bx + 0.5, by + 0.5, barW - 1, barH - 1);
+
+  if (pct > 0) {
+    ctx.fillStyle = colors.fill;
+    ctx.fillRect(bx + 1, by + 1, (barW - 2) * pct, barH - 2);
+  }
+}
+
 function drawPlayer(ctx: CanvasRenderingContext2D, p: RenderPlayer) {
   if (p.eliminated) {
     ctx.globalAlpha = 0.35;
@@ -178,6 +201,8 @@ function drawPlayer(ctx: CanvasRenderingContext2D, p: RenderPlayer) {
   ctx.restore();
   ctx.globalAlpha = 1;
 
+  drawPlayerHealthBar(ctx, p);
+
   if (p.isLocal) {
     ctx.strokeStyle = "rgba(255,255,255,0.5)";
     ctx.lineWidth = 2;
@@ -185,15 +210,6 @@ function drawPlayer(ctx: CanvasRenderingContext2D, p: RenderPlayer) {
     ctx.arc(p.x, p.y, r + 4, 0, Math.PI * 2);
     ctx.stroke();
   }
-
-  const barW = 36;
-  const barH = 4;
-  const bx = p.x - barW / 2;
-  const by = p.y - r - 12;
-  ctx.fillStyle = "rgba(0,0,0,0.5)";
-  ctx.fillRect(bx, by, barW, barH);
-  ctx.fillStyle = colors.fill;
-  ctx.fillRect(bx, by, barW * (p.hp / p.maxHp), barH);
 }
 
 function drawBullet(ctx: CanvasRenderingContext2D, b: RenderBullet) {

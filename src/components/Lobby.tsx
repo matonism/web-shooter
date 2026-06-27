@@ -1,14 +1,24 @@
 import { teamSize } from "@shared/constants";
 import { GAME_CATALOG, getGameDef } from "@shared/games";
+import { SOLO_BOT_LIMITS } from "@shared/solo";
 import {
   RACE_SCORING_OPTIONS,
   RACE_VISIBILITY_OPTIONS,
 } from "@shared/raceSettings";
 import {
   SHOOTER_AIM_OPTIONS,
+  SHOOTER_FIRE_RATE_BPS,
   SHOOTER_NUMERIC_SETTINGS,
+  bulletsPerSecondFromCooldownMs,
+  fireCooldownMsFromBps,
 } from "@shared/shooterSettings";
-import type { GameId, GamePickMode, RaceSettings, RoomStatePublic, ShooterSettings, Team } from "@shared/types";
+import {
+  SHOOTER_BOT_FILL_OPTIONS,
+  canStartShooterWithBots,
+  describeShooterTeams,
+  maxHumansOnTeam,
+} from "@shared/shooterBots";
+import type { GameId, GamePickMode, RaceSettings, RoomStatePublic, ShooterBotSettings, ShooterSettings, Team } from "@shared/types";
 
 interface LobbyProps {
   roomState: RoomStatePublic;
@@ -17,8 +27,10 @@ interface LobbyProps {
   onSetGamePickMode: (mode: GamePickMode) => void;
   onVoteGame: (gameId: GameId) => void;
   onSetSoloMode: (enabled: boolean) => void;
+  onSetSoloBotCount: (count: number) => void;
   onSetRaceSettings: (settings: Partial<RaceSettings>) => void;
   onSetShooterSettings: (settings: Partial<ShooterSettings>) => void;
+  onSetShooterBotSettings: (settings: Partial<ShooterBotSettings>) => void;
   onStart: () => void;
   onBackToLobby: () => void;
   onRestartRound: () => void;
@@ -85,6 +97,9 @@ function canStart(roomState: RoomStatePublic): boolean {
   }
 
   if (def.requiresTeams) {
+    if (gameId === "shooter") {
+      return canStartShooterWithBots(roomState.players, roomState.shooterBotSettings);
+    }
     const red = teamSize(roomState.players, "red");
     const blue = teamSize(roomState.players, "blue");
     return red >= 1 && blue >= 1 && roomState.players.filter((p) => p.team).length >= 2;
@@ -99,8 +114,10 @@ export function Lobby({
   onSetGamePickMode,
   onVoteGame,
   onSetSoloMode,
+  onSetSoloBotCount,
   onSetRaceSettings,
   onSetShooterSettings,
+  onSetShooterBotSettings,
   onStart,
   onBackToLobby,
   onRestartRound,
@@ -132,6 +149,20 @@ export function Lobby({
   const showShooterSettings =
     roomState.gamePickMode !== "random" &&
     (effectiveGameId === "shooter" || roomState.selectedGameId === "shooter");
+  const showShooterBotSettings =
+    showShooterSettings && !roomState.soloMode && roomState.players.length > 1;
+  const shooterTeamPreview =
+    showShooterBotSettings && roomState.shooterBotSettings.fillMode !== "off"
+      ? describeShooterTeams(roomState.players, roomState.shooterBotSettings)
+      : null;
+  const redHumanCap =
+    showShooterBotSettings && roomState.shooterBotSettings.fillMode === "custom"
+      ? maxHumansOnTeam("red", roomState.shooterBotSettings)
+      : roomState.maxPerTeam;
+  const blueHumanCap =
+    showShooterBotSettings && roomState.shooterBotSettings.fillMode === "custom"
+      ? maxHumansOnTeam("blue", roomState.shooterBotSettings)
+      : roomState.maxPerTeam;
   const startReady = canStart(roomState);
   const myVote = roomState.gameVotes[roomState.youId];
 
@@ -360,11 +391,100 @@ export function Lobby({
                   </label>
                 );
               })}
+              <label className="shooter-setting-row">
+                <span className="shooter-setting-label">
+                  Fire rate
+                  <strong>
+                    {bulletsPerSecondFromCooldownMs(roomState.shooterSettings.fireCooldownMs)} /s
+                  </strong>
+                </span>
+                <input
+                  type="range"
+                  min={SHOOTER_FIRE_RATE_BPS.min}
+                  max={SHOOTER_FIRE_RATE_BPS.max}
+                  step={SHOOTER_FIRE_RATE_BPS.step}
+                  value={bulletsPerSecondFromCooldownMs(roomState.shooterSettings.fireCooldownMs)}
+                  disabled={!isHost}
+                  onChange={(e) =>
+                    onSetShooterSettings({
+                      fireCooldownMs: fireCooldownMsFromBps(Number(e.target.value)),
+                    })
+                  }
+                />
+              </label>
             </div>
             <p className="hint">
               Finite ammo — return to your team&apos;s colored rear zone to reload. Extended Mag
               powerup boosts capacity. One bomb per round (B).
             </p>
+          </div>
+        )}
+
+        {showShooterBotSettings && (
+          <div className="shooter-bot-settings">
+            <h3>AI teammates</h3>
+            {isHost ? (
+              <>
+                <div className="pick-mode-tabs">
+                  {SHOOTER_BOT_FILL_OPTIONS.map((opt) => (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      className={
+                        roomState.shooterBotSettings.fillMode === opt.id ? "active" : undefined
+                      }
+                      onClick={() => onSetShooterBotSettings({ fillMode: opt.id })}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+                <p className="hint">
+                  {
+                    SHOOTER_BOT_FILL_OPTIONS.find(
+                      (o) => o.id === roomState.shooterBotSettings.fillMode,
+                    )?.desc
+                  }
+                </p>
+                {roomState.shooterBotSettings.fillMode === "custom" && (
+                  <div className="shooter-settings-grid">
+                    {(["red", "blue"] as Team[]).map((team) => (
+                      <label key={team} className="shooter-setting-row">
+                        <span className="shooter-setting-label">
+                          {team === "red" ? "Red" : "Blue"} AI
+                          <strong>{roomState.shooterBotSettings.customBots[team]}</strong>
+                        </span>
+                        <input
+                          type="range"
+                          min={0}
+                          max={roomState.maxPerTeam}
+                          step={1}
+                          value={roomState.shooterBotSettings.customBots[team]}
+                          onChange={(e) =>
+                            onSetShooterBotSettings({
+                              customBots: { [team]: Number(e.target.value) },
+                            })
+                          }
+                        />
+                      </label>
+                    ))}
+                  </div>
+                )}
+              </>
+            ) : (
+              <p className="hint">
+                {roomState.shooterBotSettings.fillMode === "off"
+                  ? "Humans only."
+                  : roomState.shooterBotSettings.fillMode === "balance"
+                    ? "Host enabled AI team balancing."
+                    : "Host set custom AI per team."}
+              </p>
+            )}
+            {shooterTeamPreview && (
+              <p className="hint shooter-team-preview">
+                Red: {shooterTeamPreview.red} · Blue: {shooterTeamPreview.blue}
+              </p>
+            )}
           </div>
         )}
 
@@ -376,6 +496,24 @@ export function Lobby({
               onChange={(e) => onSetSoloMode(e.target.checked)}
             />
             <span>Practice vs AI (solo)</span>
+          </label>
+        )}
+
+        {isHost && roomState.soloMode && effectiveGameId && effectiveGame?.supportsSolo && (
+          <label className="setting-row">
+            <span>
+              AI opponents ({SOLO_BOT_LIMITS[effectiveGameId].min}–
+              {SOLO_BOT_LIMITS[effectiveGameId].max})
+            </span>
+            <input
+              type="range"
+              min={SOLO_BOT_LIMITS[effectiveGameId].min}
+              max={SOLO_BOT_LIMITS[effectiveGameId].max}
+              step={1}
+              value={roomState.soloBotCount}
+              onChange={(e) => onSetSoloBotCount(Number(e.target.value))}
+            />
+            <span className="setting-value">{roomState.soloBotCount}</span>
           </label>
         )}
 
@@ -406,17 +544,17 @@ export function Lobby({
               type="button"
               className={`team-btn red ${me?.team === "red" ? "selected" : ""}`}
               onClick={() => onSelectTeam("red")}
-              disabled={redCount >= roomState.maxPerTeam && me?.team !== "red"}
+              disabled={redCount >= redHumanCap && me?.team !== "red"}
             >
-              Red ({redCount}/{roomState.maxPerTeam})
+              Red ({redCount}/{redHumanCap})
             </button>
             <button
               type="button"
               className={`team-btn blue ${me?.team === "blue" ? "selected" : ""}`}
               onClick={() => onSelectTeam("blue")}
-              disabled={blueCount >= roomState.maxPerTeam && me?.team !== "blue"}
+              disabled={blueCount >= blueHumanCap && me?.team !== "blue"}
             >
-              Blue ({blueCount}/{roomState.maxPerTeam})
+              Blue ({blueCount}/{blueHumanCap})
             </button>
           </div>
         )}
@@ -456,9 +594,13 @@ export function Lobby({
                 : "Ready when you are — AI opponents will join on start."
               : roomState.gamePickMode === "random"
                 ? "Need at least 2 players to start."
-                : showTeams
-                  ? "Need at least 1 player per team to start Arena Shooter."
-                  : "Need at least 2 players to start."}
+                : showTeams && effectiveGameId === "shooter"
+                  ? roomState.shooterBotSettings.fillMode !== "off"
+                    ? "Everyone needs a team — AI will fill gaps on start."
+                    : "Need at least 1 player per team to start Arena Shooter."
+                  : showTeams
+                    ? "Need at least 1 player per team to start Arena Shooter."
+                    : "Need at least 2 players to start."}
           </p>
         )}
       </div>

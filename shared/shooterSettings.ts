@@ -54,12 +54,26 @@ export const SHOOTER_NUMERIC_SETTINGS: ShooterSettingDef[] = [
   { key: "bulletSpeed", label: "Bullet speed", min: 150, max: 600, step: 10, unit: "px/s" },
   { key: "bulletRadius", label: "Bullet size", min: 3, max: 12, step: 1, unit: "px" },
   { key: "bulletDamage", label: "Bullet damage", min: 10, max: 80, step: 5, unit: "" },
-  { key: "magazineSize", label: "Magazine size", min: 8, max: 60, step: 2, unit: "rds" },
-  { key: "fireCooldownMs", label: "Fire rate", min: 200, max: 2500, step: 50, unit: "ms" },
+  { key: "magazineSize", label: "Magazine size", min: 1, max: 60, step: 1, unit: "rds" },
   { key: "bulletLifetimeMs", label: "Bullet lifetime", min: 500, max: 4000, step: 100, unit: "ms" },
-  { key: "bombDamage", label: "Bomb damage", min: 20, max: 120, step: 5, unit: "" },
+  { key: "bombDamage", label: "Bomb damage", min: 20, max: 400, step: 10, unit: "" },
   { key: "bombRadius", label: "Bomb trigger size", min: 28, max: 80, step: 4, unit: "px" },
 ];
+
+/** Fire rate shown in lobby as bullets/s; stored as fireCooldownMs on settings. */
+export const SHOOTER_FIRE_RATE_BPS = { min: 0.4, max: 5, step: 0.1 } as const;
+
+export function bulletsPerSecondFromCooldownMs(ms: number): number {
+  return Math.round((1000 / ms) * 10) / 10;
+}
+
+export function fireCooldownMsFromBps(bps: number): number {
+  const clamped = Math.min(
+    SHOOTER_FIRE_RATE_BPS.max,
+    Math.max(SHOOTER_FIRE_RATE_BPS.min, bps),
+  );
+  return Math.round(1000 / clamped);
+}
 
 export function clampShooterSettings(s: ShooterSettings): ShooterSettings {
   const clamp = (v: number, min: number, max: number) => Math.min(max, Math.max(min, v));
@@ -71,9 +85,9 @@ export function clampShooterSettings(s: ShooterSettings): ShooterSettings {
     bulletDamage: clamp(s.bulletDamage, 10, 80),
     fireCooldownMs: clamp(s.fireCooldownMs, 200, 2500),
     bulletLifetimeMs: clamp(s.bulletLifetimeMs, 500, 4000),
-    magazineSize: clamp(s.magazineSize, 8, 60),
+    magazineSize: clamp(s.magazineSize, 1, 60),
     aimMode: s.aimMode === "movement" ? "movement" : "free",
-    bombDamage: clamp(s.bombDamage, 20, 120),
+    bombDamage: clamp(s.bombDamage, 20, 400),
     bombRadius: clamp(s.bombRadius, 28, 80),
   };
 }

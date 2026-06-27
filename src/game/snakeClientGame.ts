@@ -5,6 +5,7 @@ export class SnakeClientGame {
   private keys = { up: false, down: false, left: false, right: false };
   private inputSeq = 0;
   private touch = { enabled: false, moveX: 0, moveY: 0 };
+  private pulse = { moveX: 0, moveY: 0, framesLeft: 0 };
   private lastSnapshot: SnakeWorldSnapshot | null = null;
 
   setLocalId(id: string) {
@@ -18,6 +19,10 @@ export class SnakeClientGame {
   setTouchMove(moveX: number, moveY: number) {
     this.touch.moveX = moveX;
     this.touch.moveY = moveY;
+  }
+
+  pulseDirection(moveX: number, moveY: number, frames = 5) {
+    this.pulse = { moveX, moveY, framesLeft: frames };
   }
 
   bindInput() {
@@ -56,7 +61,11 @@ export class SnakeClientGame {
     if (this.keys.left) dx -= 1;
     if (this.keys.right) dx += 1;
 
-    if (this.touch.enabled) {
+    if (this.pulse.framesLeft > 0) {
+      dx = this.pulse.moveX;
+      dy = this.pulse.moveY;
+      this.pulse.framesLeft -= 1;
+    } else if (this.touch.enabled) {
       dx += this.touch.moveX;
       dy += this.touch.moveY;
       const len = Math.hypot(dx, dy);

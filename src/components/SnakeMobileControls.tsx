@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef } from "react";
 interface TouchMoveGame {
   enableTouchControls: (enabled: boolean) => void;
   setTouchMove: (moveX: number, moveY: number) => void;
+  pulseDirection: (moveX: number, moveY: number) => void;
 }
 
 interface SnakeMobileControlsProps {
@@ -19,8 +20,18 @@ const DIR_VEC: Record<Exclude<Dir, null>, { x: number; y: number }> = {
   right: { x: 1, y: 0 },
 };
 
+const SWIPE_MIN_PX = 32;
+const SWIPE_MAX_MS = 450;
+
+function swipeToDir(dx: number, dy: number): Exclude<Dir, null> | null {
+  if (Math.hypot(dx, dy) < SWIPE_MIN_PX) return null;
+  if (Math.abs(dx) >= Math.abs(dy)) return dx > 0 ? "right" : "left";
+  return dy > 0 ? "down" : "up";
+}
+
 export function SnakeMobileControls({ game, disabled = false }: SnakeMobileControlsProps) {
   const activeDir = useRef<Dir>(null);
+  const swipeRef = useRef<{ x: number; y: number; t: number } | null>(null);
 
   const applyDir = useCallback(
     (dir: Dir) => {
@@ -32,6 +43,15 @@ export function SnakeMobileControls({ game, disabled = false }: SnakeMobileContr
       }
       const v = DIR_VEC[dir];
       game.setTouchMove(v.x, v.y);
+    },
+    [game, disabled],
+  );
+
+  const applySwipe = useCallback(
+    (dir: Exclude<Dir, null>) => {
+      if (disabled) return;
+      const v = DIR_VEC[dir];
+      game.pulseDirection(v.x, v.y);
     },
     [game, disabled],
   );
@@ -66,8 +86,29 @@ export function SnakeMobileControls({ game, disabled = false }: SnakeMobileContr
     },
   });
 
+  const bindSwipe = {
+    onPointerDown: (e: React.PointerEvent) => {
+      if (disabled) return;
+      e.preventDefault();
+      swipeRef.current = { x: e.clientX, y: e.clientY, t: e.timeStamp };
+    },
+    onPointerUp: (e: React.PointerEvent) => {
+      if (disabled) return;
+      const start = swipeRef.current;
+      swipeRef.current = null;
+      if (!start) return;
+      if (e.timeStamp - start.t > SWIPE_MAX_MS) return;
+      const dir = swipeToDir(e.clientX - start.x, e.clientY - start.y);
+      if (dir) applySwipe(dir);
+    },
+    onPointerCancel: () => {
+      swipeRef.current = null;
+    },
+  };
+
   return (
     <div className="snake-mobile-controls" aria-hidden={disabled}>
+      <div className="snake-swipe-surface" aria-hidden {...bindSwipe} />
       <div className="snake-dpad">
         <button type="button" className="snake-dpad-btn snake-dpad-up" aria-label="Up" {...bind("up")}>
           ▲
