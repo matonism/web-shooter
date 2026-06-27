@@ -36,6 +36,8 @@ export const POWERUP = {
   shieldCapacity: 50,
   speedMultiplier: 1.55,
   rapidCooldownMult: 0.42,
+  /** Magazine capacity multiplier while extended-mag powerup is active */
+  extendedMagMultiplier: 1.5,
 } as const;
 
 export type BulletKind = "normal" | "heavy" | "spread";

@@ -7,6 +7,7 @@ import { Server, type Socket } from "socket.io";
 import { MAX_PER_TEAM, MAX_PLAYERS, TICK_MS } from "../shared/constants.ts";
 import type { GameId } from "../shared/games.ts";
 import { DEFAULT_RACE_SETTINGS } from "../shared/raceSettings.ts";
+import { DEFAULT_SHOOTER_SETTINGS, mergeShooterSettings } from "../shared/shooterSettings.ts";
 import type {
   ClientToServerEvents,
   GamePhase,
@@ -15,6 +16,7 @@ import type {
   RaceSettings,
   RoomStatePublic,
   ServerToClientEvents,
+  ShooterSettings,
   Team,
 } from "../shared/types.ts";
 import { createSimulation } from "./createSimulation.ts";
@@ -24,6 +26,7 @@ import {
   previewGameId,
   resolveGameId,
 } from "./gamePick.ts";
+import { GameSimulation } from "./gameSimulation.ts";
 import { RaceSimulation } from "./raceSimulation.ts";
 import { addSoloBots } from "./soloBots.ts";
 import type { RoomSimulation } from "./roomSimulation.ts";
@@ -63,6 +66,7 @@ interface Room {
   gameVotes: Map<string, GameId>;
   soloMode: boolean;
   raceSettings: RaceSettings;
+  shooterSettings: ShooterSettings;
   playingGameId: GameId | null;
   simulation: RoomSimulation | null;
   gameLoop?: ReturnType<typeof setInterval>;
@@ -143,6 +147,7 @@ function publicState(room: Room, youId: string): RoomStatePublic {
     gameVotes: gameVotesRecord(room.gameVotes),
     soloMode: room.soloMode,
     raceSettings: room.raceSettings,
+    shooterSettings: room.shooterSettings,
     playingGameId: room.playingGameId,
     youId,
     yourToken: you?.token ?? "",
@@ -200,6 +205,9 @@ function bootstrapSimulation(room: Room, gameId: GameId) {
   }
   if (room.simulation instanceof RaceSimulation) {
     room.simulation.setRaceSettings(room.raceSettings);
+  }
+  if (room.simulation instanceof GameSimulation) {
+    room.simulation.setShooterSettings(room.shooterSettings);
   }
   if (room.soloMode) {
     addSoloBots(
@@ -314,6 +322,7 @@ io.on("connection", (socket) => {
       gameVotes: new Map(),
       soloMode: false,
       raceSettings: { ...DEFAULT_RACE_SETTINGS },
+      shooterSettings: { ...DEFAULT_SHOOTER_SETTINGS },
       playingGameId: null,
       simulation: null,
       lastActivityAt: Date.now(),
@@ -447,6 +456,16 @@ io.on("connection", (socket) => {
     if (!room || room.hostId !== socket.id || room.phase !== "lobby") return;
     if (settings.scoringMode) room.raceSettings.scoringMode = settings.scoringMode;
     if (settings.visibility) room.raceSettings.visibility = settings.visibility;
+    touchRoom(room);
+    broadcastRoom(room);
+  });
+
+  socket.on("setShooterSettings", ({ settings }) => {
+    const code = socketRoom.get(socket.id);
+    if (!code) return;
+    const room = getRoom(code);
+    if (!room || room.hostId !== socket.id || room.phase !== "lobby") return;
+    room.shooterSettings = mergeShooterSettings(room.shooterSettings, settings);
     touchRoom(room);
     broadcastRoom(room);
   });

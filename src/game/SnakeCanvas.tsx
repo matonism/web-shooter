@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { SNAKE_ARENA } from "@shared/snakeConstants";
 import { isSnakeWorld } from "@shared/types";
 import type { RoomStatePublic } from "@shared/types";
-import { MobileControls } from "../components/MobileControls";
+import { SnakeMobileControls } from "../components/SnakeMobileControls";
 import { isTouchDevice } from "../utils/touchDevice";
 import { SnakeClientGame } from "./snakeClientGame";
 import { drawSnakeGame } from "./snakeRenderer";
@@ -68,7 +68,7 @@ export function SnakeCanvas({ roomState, onInput }: SnakeCanvasProps) {
         height={SNAKE_ARENA.height}
       />
       {touchControls && (
-        <MobileControls game={gameRef.current} disabled={eliminated} showTapHint={false} />
+        <SnakeMobileControls game={gameRef.current} disabled={eliminated} />
       )}
     </>
   );

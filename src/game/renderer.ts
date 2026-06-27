@@ -1,16 +1,42 @@
 import { ARENA, BULLET, PLAYER, POWERUP, TEAM_COLORS } from "@shared/constants";
 import { POWERUP_DEFS } from "@shared/powerups";
-import type { RenderBullet, RenderPlayer, RenderPowerup, RenderState } from "./clientGame";
+import { RESUPPLY_ZONES } from "@shared/shooterResupply";
+import type { RenderBomb, RenderBullet, RenderPlayer, RenderPowerup, RenderState } from "./clientGame";
 
 export function drawGame(ctx: CanvasRenderingContext2D, state: RenderState) {
   ctx.clearRect(0, 0, ARENA.width, ARENA.height);
   drawArena(ctx);
   for (const pu of state.powerups) drawPowerup(ctx, pu);
+  for (const bomb of state.bombs) drawBomb(ctx, bomb, state.bombRadius);
   for (const b of state.bullets) drawBullet(ctx, b);
   for (const p of state.players) {
-    if (p.isLocal) drawLocalAimLine(ctx, p);
+    if (p.isLocal && state.aimMode === "free") drawLocalAimLine(ctx, p);
     drawPlayer(ctx, p);
   }
+}
+
+function drawBomb(ctx: CanvasRenderingContext2D, bomb: RenderBomb, radius: number) {
+  const colors = TEAM_COLORS[bomb.team];
+  const pulse = 0.85 + Math.sin(Date.now() / 180) * 0.15;
+
+  ctx.save();
+  ctx.translate(bomb.x, bomb.y);
+  ctx.shadowColor = colors.glow;
+  ctx.shadowBlur = 14 * pulse;
+  ctx.strokeStyle = colors.bullet;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.arc(0, 0, radius * pulse, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.fillStyle = `${colors.fill}44`;
+  ctx.fill();
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = "#fff";
+  ctx.font = "bold 11px Orbitron, sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText("!", 0, 1);
+  ctx.restore();
 }
 
 function drawPowerup(ctx: CanvasRenderingContext2D, pu: RenderPowerup) {
@@ -76,6 +102,18 @@ function drawArena(ctx: CanvasRenderingContext2D) {
   ctx.fillStyle = bg;
   ctx.fillRect(0, 0, width, height);
 
+  for (const team of ["red", "blue"] as const) {
+    const z = RESUPPLY_ZONES[team];
+    const colors = TEAM_COLORS[team];
+    ctx.fillStyle = `${colors.fill}12`;
+    ctx.fillRect(z.xMin, z.yMin, z.xMax - z.xMin, z.yMax - z.yMin);
+    ctx.strokeStyle = `${colors.glow}44`;
+    ctx.lineWidth = 2;
+    ctx.setLineDash([10, 8]);
+    ctx.strokeRect(z.xMin + 1, z.yMin + 1, z.xMax - z.xMin - 2, z.yMax - z.yMin - 2);
+    ctx.setLineDash([]);
+  }
+
   ctx.strokeStyle = "rgba(0, 229, 255, 0.08)";
   ctx.lineWidth = 1;
   const grid = 40;
@@ -95,11 +133,6 @@ function drawArena(ctx: CanvasRenderingContext2D) {
   ctx.strokeStyle = "rgba(0, 229, 255, 0.35)";
   ctx.lineWidth = 3;
   ctx.strokeRect(2, 2, width - 4, height - 4);
-
-  ctx.fillStyle = "rgba(255, 51, 102, 0.06)";
-  ctx.fillRect(0, 0, width * 0.15, height);
-  ctx.fillStyle = "rgba(51, 204, 255, 0.06)";
-  ctx.fillRect(width * 0.85, 0, width * 0.15, height);
 }
 
 function drawPlayer(ctx: CanvasRenderingContext2D, p: RenderPlayer) {

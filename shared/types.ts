@@ -4,14 +4,24 @@ export type GamePhase = "lobby" | "playing" | "finished";
 import type { GameId, GamePickMode } from "./games.ts";
 import type { RaceSettings } from "./raceSettings.ts";
 import { DEFAULT_RACE_SETTINGS } from "./raceSettings.ts";
+import type { ShooterSettings } from "./shooterSettings.ts";
+import { DEFAULT_SHOOTER_SETTINGS } from "./shooterSettings.ts";
 import type { BulletKind } from "./constants.ts";
 import type { PowerupKind } from "./powerups.ts";
 
-export type { BulletKind, PowerupKind, GameId, GamePickMode, RaceSettings };
+export type { BulletKind, PowerupKind, GameId, GamePickMode, RaceSettings, ShooterSettings };
 
 export interface Vec2 {
   x: number;
   y: number;
+}
+
+export interface BombState {
+  id: string;
+  x: number;
+  y: number;
+  ownerId: string;
+  team: Team;
 }
 
 export interface BulletState {
@@ -50,6 +60,10 @@ export interface PlayerState {
   activePowerups: PlayerPowerup[];
   shield: number;
   speedMultiplier: number;
+  bombPlaced: boolean;
+  ammo: number;
+  maxAmmo: number;
+  inResupplyZone: boolean;
 }
 
 export interface GridCell {
@@ -80,8 +94,10 @@ export interface BaseWorldSnapshot {
 
 export interface ShooterWorldSnapshot extends BaseWorldSnapshot {
   gameId: "shooter";
+  settings: ShooterSettings;
   players: PlayerState[];
   bullets: BulletState[];
+  bombs: BombState[];
   powerups: PowerupState[];
 }
 
@@ -140,6 +156,7 @@ export interface PlayerInput {
   dy: number;
   angle: number;
   fire: boolean;
+  bomb: boolean;
 }
 
 /** Client render position — relayed to other players (not used for server physics). */
@@ -180,6 +197,8 @@ export interface RoomStatePublic {
   soloMode: boolean;
   /** Platform race options (lobby + in-game) */
   raceSettings: RaceSettings;
+  /** Arena shooter tuning (lobby + in-game) */
+  shooterSettings: ShooterSettings;
   /** Set while playing or after finish */
   playingGameId: GameId | null;
   /** Present when phase is playing or finished */
@@ -228,6 +247,10 @@ export interface SetRaceSettingsPayload {
   settings: Partial<RaceSettings>;
 }
 
+export interface SetShooterSettingsPayload {
+  settings: Partial<ShooterSettings>;
+}
+
 export interface ClientToServerEvents {
   createRoom: (payload: CreateRoomPayload) => void;
   joinRoom: (payload: JoinRoomPayload) => void;
@@ -238,6 +261,7 @@ export interface ClientToServerEvents {
   voteGame: (payload: VoteGamePayload) => void;
   setSoloMode: (payload: SetSoloModePayload) => void;
   setRaceSettings: (payload: SetRaceSettingsPayload) => void;
+  setShooterSettings: (payload: SetShooterSettingsPayload) => void;
   startGame: () => void;
   backToLobby: () => void;
   restartRound: () => void;

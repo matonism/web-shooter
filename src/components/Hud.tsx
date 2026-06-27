@@ -30,6 +30,17 @@ export function Hud({ roomState }: HudProps) {
                 style={{ width: `${(me.hp / me.maxHp) * 100}%` }}
               />
             </div>
+            <div className="health-bar-label hud-ammo-label">Ammo</div>
+            <div className="health-bar ammo-bar">
+              <div
+                className={`health-bar-fill ${me.team}-team`}
+                style={{ width: `${me.maxAmmo > 0 ? (me.ammo / me.maxAmmo) * 100 : 0}%` }}
+              />
+            </div>
+            <div className={`hud-ammo ${me.ammo === 0 ? "hud-ammo--empty" : ""}`}>
+              {me.ammo} / {me.maxAmmo}
+              {me.inResupplyZone ? " · resupplying" : me.ammo === 0 ? " · return to base" : ""}
+            </div>
             {me.shield > 0 && (
               <div className="hud-shield">Shield {me.shield}</div>
             )}
@@ -48,6 +59,12 @@ export function Hud({ roomState }: HudProps) {
                 </div>
               );
             })}
+            <div className="hud-bomb">
+              Bomb: {me.bombPlaced ? "used" : "ready (B / tap BOMB)"}
+            </div>
+            {world.settings.aimMode === "movement" && (
+              <div className="hud-aim-mode hint">Aim: move direction</div>
+            )}
           </div>
         )}
 

@@ -125,7 +125,7 @@ export class SnakeSimulation implements RoomSimulation {
           this.pellets.map((p) => ({ x: p.x, y: p.y })),
         );
         const { dx, dy } = directionToInput(dir);
-        snake.pendingInput = { seq: 0, dx, dy, angle: 0, fire: false };
+        snake.pendingInput = { seq: 0, dx, dy, angle: 0, fire: false, bomb: false };
         snake.lastInput = snake.pendingInput;
       }
       const input = snake.pendingInput ?? snake.lastInput;

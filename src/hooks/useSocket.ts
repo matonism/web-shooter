@@ -7,6 +7,7 @@ import type {
   RaceSettings,
   RejoinSession,
   RoomStatePublic,
+  ShooterSettings,
   ServerToClientEvents,
 } from "@shared/types";
 
@@ -143,6 +144,10 @@ export function useSocket() {
     getSocket().emit("setRaceSettings", { settings });
   };
 
+  const setShooterSettings = (settings: Partial<ShooterSettings>) => {
+    getSocket().emit("setShooterSettings", { settings });
+  };
+
   const startGame = () => getSocket().emit("startGame");
   const backToLobby = () => getSocket().emit("backToLobby");
   const restartRound = () => getSocket().emit("restartRound");
@@ -175,6 +180,7 @@ export function useSocket() {
     voteGame,
     setSoloMode,
     setRaceSettings,
+    setShooterSettings,
     startGame,
     backToLobby,
     restartRound,

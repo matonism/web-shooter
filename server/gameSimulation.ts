@@ -1,8 +1,6 @@
 import { randomUUID } from "node:crypto";
 import {
   ARENA,
-  BULLET,
-  FIRE_COOLDOWN_MS,
   MAX_PER_TEAM,
   PLAYER,
   POWERUP,
@@ -11,7 +9,13 @@ import {
 } from "../shared/constants.ts";
 import { stepMovement } from "../shared/movement.ts";
 import { ALL_POWERUP_KINDS } from "../shared/powerups.ts";
+import { isInResupplyZone } from "../shared/shooterResupply.ts";
+import {
+  DEFAULT_SHOOTER_SETTINGS,
+  type ShooterSettings,
+} from "../shared/shooterSettings.ts";
 import type {
+  BombState,
   BulletKind,
   BulletState,
   LobbyPlayer,
@@ -38,6 +42,8 @@ interface InternalPlayer {
   connected: boolean;
   isBot: boolean;
   lastFireAt: number;
+  ammo: number;
+  bombPlaced: boolean;
   pendingInput: PlayerInput | null;
   lastInput: PlayerInput | null;
   activePowerups: { kind: PowerupKind; until: number }[];
@@ -57,6 +63,15 @@ interface InternalBullet {
   kind: BulletKind;
   damage: number;
   radius: number;
+  lifetimeMs: number;
+}
+
+interface InternalBomb {
+  id: string;
+  x: number;
+  y: number;
+  ownerId: string;
+  team: Team;
 }
 
 interface InternalPowerup {
@@ -72,8 +87,10 @@ export class GameSimulation implements RoomSimulation {
   tick = 0;
   players = new Map<string, InternalPlayer>();
   bullets: InternalBullet[] = [];
+  bombs: InternalBomb[] = [];
   powerups: InternalPowerup[] = [];
   winner: Team | null = null;
+  settings: ShooterSettings = { ...DEFAULT_SHOOTER_SETTINGS };
   private lastPowerupSpawnAt = 0;
 
   get matchWinner(): MatchWinner | null {
@@ -81,14 +98,20 @@ export class GameSimulation implements RoomSimulation {
     return { kind: "team", team: this.winner };
   }
 
+  setShooterSettings(settings: ShooterSettings) {
+    this.settings = { ...settings };
+  }
+
   reset() {
     this.tick = 0;
     this.bullets = [];
+    this.bombs = [];
     this.powerups = [];
     this.winner = null;
     this.lastPowerupSpawnAt = Date.now();
     for (const p of this.players.values()) {
       this.clearPowerups(p);
+      p.bombPlaced = false;
       this.respawnPlayer(p);
     }
   }
@@ -101,11 +124,13 @@ export class GameSimulation implements RoomSimulation {
       x: ARENA.width / 2,
       y: ARENA.height / 2,
       angle: 0,
-      hp: PLAYER.maxHp,
+      hp: this.settings.playerMaxHp,
       eliminated: false,
       connected: true,
       isBot,
       lastFireAt: 0,
+      ammo: this.settings.magazineSize,
+      bombPlaced: false,
       pendingInput: null,
       lastInput: null,
       activePowerups: [],
@@ -116,6 +141,7 @@ export class GameSimulation implements RoomSimulation {
   removePlayer(id: string) {
     this.players.delete(id);
     this.bullets = this.bullets.filter((b) => b.ownerId !== id);
+    this.bombs = this.bombs.filter((b) => b.ownerId !== id);
   }
 
   setConnected(id: string, connected: boolean) {
@@ -130,6 +156,9 @@ export class GameSimulation implements RoomSimulation {
     this.players.delete(oldId);
     this.players.set(newId, p);
     for (const b of this.bullets) {
+      if (b.ownerId === oldId) b.ownerId = newId;
+    }
+    for (const b of this.bombs) {
       if (b.ownerId === oldId) b.ownerId = newId;
     }
   }
@@ -170,20 +199,37 @@ export class GameSimulation implements RoomSimulation {
 
     for (const p of this.players.values()) {
       this.refreshPowerups(p, now);
+      this.clampAmmo(p, now);
       const input = p.pendingInput ?? p.lastInput;
       if (p.eliminated || !input) continue;
-      const { dx, dy, angle, fire } = input;
-      p.angle = angle;
+      const { dx, dy, fire, bomb } = input;
+      p.angle = this.resolveAimAngle(p, dx, dy, input.angle);
 
-      const speed = PLAYER.speed * this.speedMultiplier(p);
+      const speed = this.settings.playerSpeed * this.speedMultiplier(p);
       const next = stepMovement(p.x, p.y, dx, dy, speed, dt);
       p.x = next.x;
       p.y = next.y;
 
-      if (fire && p.team) {
+      if (p.team && isInResupplyZone(p.x, p.y, p.team)) {
+        p.ammo = this.maxAmmo(p, now);
+      }
+
+      if (bomb && p.team && !p.bombPlaced) {
+        p.bombPlaced = true;
+        this.bombs.push({
+          id: randomUUID(),
+          x: p.x,
+          y: p.y,
+          ownerId: p.id,
+          team: p.team,
+        });
+      }
+
+      if (fire && p.team && p.ammo > 0) {
         const cooldown = this.fireCooldown(p);
         if (now - p.lastFireAt >= cooldown) {
           p.lastFireAt = now;
+          p.ammo -= 1;
           this.spawnBulletsForPlayer(p);
         }
       }
@@ -191,8 +237,16 @@ export class GameSimulation implements RoomSimulation {
     }
 
     this.checkPowerupPickups();
+    this.checkBombCollisions();
     this.updateBullets(dt);
     this.checkWinCondition();
+  }
+
+  private resolveAimAngle(p: InternalPlayer, dx: number, dy: number, inputAngle: number): number {
+    if (this.settings.aimMode !== "movement") return inputAngle;
+    const len = Math.hypot(dx, dy);
+    if (len < 0.2) return p.angle;
+    return Math.atan2(dy, dx);
   }
 
   private tickPowerups(now: number) {
@@ -238,6 +292,24 @@ export class GameSimulation implements RoomSimulation {
     }
   }
 
+  private checkBombCollisions() {
+    const survivors: InternalBomb[] = [];
+    for (const bomb of this.bombs) {
+      let triggered = false;
+      for (const p of this.players.values()) {
+        if (p.eliminated || !p.team || p.team === bomb.team || p.id === bomb.ownerId) continue;
+        const dist = Math.hypot(bomb.x - p.x, bomb.y - p.y);
+        if (dist < PLAYER.radius + this.settings.bombRadius) {
+          this.applyDamage(p, this.settings.bombDamage);
+          triggered = true;
+          break;
+        }
+      }
+      if (!triggered) survivors.push(bomb);
+    }
+    this.bombs = survivors;
+  }
+
   private applyPowerup(p: InternalPlayer, kind: PowerupKind) {
     const now = Date.now();
     if (kind === "shield") {
@@ -250,6 +322,27 @@ export class GameSimulation implements RoomSimulation {
     } else {
       p.activePowerups.push({ kind, until: now + POWERUP.effectDurationMs });
     }
+    if (kind === "extendedMag") {
+      const bonus = Math.floor(this.settings.magazineSize * 0.5);
+      p.ammo = Math.min(this.maxAmmo(p, now), p.ammo + bonus);
+    }
+  }
+
+  private maxAmmo(p: InternalPlayer, now: number): number {
+    let cap = this.settings.magazineSize;
+    if (this.hasEffect(p, "extendedMag", now)) {
+      cap = Math.round(cap * POWERUP.extendedMagMultiplier);
+    }
+    return cap;
+  }
+
+  private clampAmmo(p: InternalPlayer, now: number) {
+    const cap = this.maxAmmo(p, now);
+    if (p.ammo > cap) p.ammo = cap;
+  }
+
+  private refillAmmo(p: InternalPlayer, now: number) {
+    p.ammo = this.maxAmmo(p, now);
   }
 
   private clearPowerups(p: InternalPlayer) {
@@ -273,10 +366,11 @@ export class GameSimulation implements RoomSimulation {
 
   private fireCooldown(p: InternalPlayer): number {
     const now = Date.now();
+    const base = this.settings.fireCooldownMs;
     if (this.hasEffect(p, "rapid", now)) {
-      return FIRE_COOLDOWN_MS * POWERUP.rapidCooldownMult;
+      return base * POWERUP.rapidCooldownMult;
     }
-    return FIRE_COOLDOWN_MS;
+    return base;
   }
 
   private bulletKind(p: InternalPlayer): BulletKind {
@@ -312,19 +406,21 @@ export class GameSimulation implements RoomSimulation {
     kind: BulletKind,
   ) {
     const heavy = kind === "heavy";
+    const speed = this.settings.bulletSpeed * (heavy ? 0.75 : 1);
     this.bullets.push({
       id: randomUUID(),
       x,
       y,
-      vx: Math.cos(angle) * (heavy ? BULLET.speed * 0.75 : BULLET.speed),
-      vy: Math.sin(angle) * (heavy ? BULLET.speed * 0.75 : BULLET.speed),
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed,
       angle,
       team: p.team!,
       ownerId: p.id,
       spawnedAt: Date.now(),
       kind,
-      damage: heavy ? 40 : kind === "spread" ? 18 : BULLET.damage,
-      radius: heavy ? 7 : kind === "spread" ? 3 : BULLET.radius,
+      damage: heavy ? Math.round(this.settings.bulletDamage * 1.6) : kind === "spread" ? Math.round(this.settings.bulletDamage * 0.72) : this.settings.bulletDamage,
+      radius: heavy ? this.settings.bulletRadius + 1 : kind === "spread" ? Math.max(3, this.settings.bulletRadius - 3) : this.settings.bulletRadius,
+      lifetimeMs: this.settings.bulletLifetimeMs,
     });
   }
 
@@ -356,7 +452,7 @@ export class GameSimulation implements RoomSimulation {
         b.x > ARENA.width + b.radius ||
         b.y < -b.radius ||
         b.y > ARENA.height + b.radius ||
-        now - b.spawnedAt > BULLET.lifetimeMs
+        now - b.spawnedAt > b.lifetimeMs
       ) {
         continue;
       }
@@ -400,10 +496,12 @@ export class GameSimulation implements RoomSimulation {
     const spawn = spawns[idx % spawns.length] ?? spawns[0]!;
     p.x = spawn.x;
     p.y = spawn.y;
-    p.hp = PLAYER.maxHp;
+    p.hp = this.settings.playerMaxHp;
     p.eliminated = false;
+    p.bombPlaced = false;
     p.angle = p.team === "red" ? 0 : Math.PI;
     this.clearPowerups(p);
+    this.refillAmmo(p, Date.now());
   }
 
   canStart(lobby: LobbyPlayer[]): boolean {
@@ -434,6 +532,9 @@ export class GameSimulation implements RoomSimulation {
         y: p.y,
         angle: p.angle,
         eliminated: p.eliminated,
+        bombPlaced: p.bombPlaced,
+        ammo: p.ammo,
+        maxAmmo: this.maxAmmo(p, Date.now()),
       },
       enemies,
       powerups: this.powerups.map((pu) => ({
@@ -441,6 +542,7 @@ export class GameSimulation implements RoomSimulation {
         y: pu.y,
         kind: pu.kind,
       })),
+      aimMode: this.settings.aimMode,
     });
   }
 
@@ -456,12 +558,16 @@ export class GameSimulation implements RoomSimulation {
         y: p.y,
         angle: p.angle,
         hp: p.hp,
-        maxHp: PLAYER.maxHp,
+        maxHp: this.settings.playerMaxHp,
         eliminated: p.eliminated,
         connected: p.connected,
         activePowerups: p.activePowerups.filter((e) => e.until > now),
         shield: p.shield,
         speedMultiplier: this.speedMultiplier(p),
+        bombPlaced: p.bombPlaced,
+        ammo: p.ammo,
+        maxAmmo: this.maxAmmo(p, now),
+        inResupplyZone: p.team ? isInResupplyZone(p.x, p.y, p.team) : false,
       }));
 
     const bullets: BulletState[] = this.bullets.map((b) => ({
@@ -472,6 +578,14 @@ export class GameSimulation implements RoomSimulation {
       team: b.team,
       ownerId: b.ownerId,
       kind: b.kind,
+    }));
+
+    const bombs: BombState[] = this.bombs.map((b) => ({
+      id: b.id,
+      x: b.x,
+      y: b.y,
+      ownerId: b.ownerId,
+      team: b.team,
     }));
 
     const powerups: PowerupState[] = this.powerups.map((pu) => ({
@@ -485,8 +599,10 @@ export class GameSimulation implements RoomSimulation {
       tick: this.tick,
       timestamp: now,
       gameId: "shooter",
+      settings: { ...this.settings },
       players,
       bullets,
+      bombs,
       powerups,
     };
   }

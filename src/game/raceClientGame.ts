@@ -126,7 +126,7 @@ export class RaceClientGame {
   commitInput(): PlayerInput {
     const { dx, jump } = this.readInput();
     this.inputSeq += 1;
-    const input: PlayerInput = { seq: this.inputSeq, dx, dy: 0, angle: 0, fire: jump };
+    const input: PlayerInput = { seq: this.inputSeq, dx, dy: 0, angle: 0, fire: jump, bomb: false };
     this.inputHistory.push({ seq: input.seq, dx, jump });
     if (this.inputHistory.length > 96) this.inputHistory.shift();
     return input;

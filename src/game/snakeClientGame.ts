@@ -67,7 +67,7 @@ export class SnakeClientGame {
     }
 
     this.inputSeq += 1;
-    return { seq: this.inputSeq, dx, dy, angle: 0, fire: false };
+    return { seq: this.inputSeq, dx, dy, angle: 0, fire: false, bomb: false };
   }
 
   onServerSnapshot(world: SnakeWorldSnapshot) {

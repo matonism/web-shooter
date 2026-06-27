@@ -23,6 +23,7 @@ export default function App() {
     voteGame,
     setSoloMode,
     setRaceSettings,
+    setShooterSettings,
     startGame,
     backToLobby,
     restartRound,
@@ -205,6 +206,7 @@ export default function App() {
           onVoteGame={voteGame}
           onSetSoloMode={setSoloMode}
           onSetRaceSettings={setRaceSettings}
+          onSetShooterSettings={setShooterSettings}
           onStart={startGame}
           onBackToLobby={backToLobby}
           onRestartRound={restartRound}

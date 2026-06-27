@@ -4,7 +4,11 @@ import {
   RACE_SCORING_OPTIONS,
   RACE_VISIBILITY_OPTIONS,
 } from "@shared/raceSettings";
-import type { GameId, GamePickMode, RaceSettings, RoomStatePublic, Team } from "@shared/types";
+import {
+  SHOOTER_AIM_OPTIONS,
+  SHOOTER_NUMERIC_SETTINGS,
+} from "@shared/shooterSettings";
+import type { GameId, GamePickMode, RaceSettings, RoomStatePublic, ShooterSettings, Team } from "@shared/types";
 
 interface LobbyProps {
   roomState: RoomStatePublic;
@@ -14,6 +18,7 @@ interface LobbyProps {
   onVoteGame: (gameId: GameId) => void;
   onSetSoloMode: (enabled: boolean) => void;
   onSetRaceSettings: (settings: Partial<RaceSettings>) => void;
+  onSetShooterSettings: (settings: Partial<ShooterSettings>) => void;
   onStart: () => void;
   onBackToLobby: () => void;
   onRestartRound: () => void;
@@ -95,6 +100,7 @@ export function Lobby({
   onVoteGame,
   onSetSoloMode,
   onSetRaceSettings,
+  onSetShooterSettings,
   onStart,
   onBackToLobby,
   onRestartRound,
@@ -123,6 +129,9 @@ export function Lobby({
   const showRaceSettings =
     roomState.gamePickMode !== "random" &&
     (effectiveGameId === "race" || roomState.selectedGameId === "race");
+  const showShooterSettings =
+    roomState.gamePickMode !== "random" &&
+    (effectiveGameId === "shooter" || roomState.selectedGameId === "shooter");
   const startReady = canStart(roomState);
   const myVote = roomState.gameVotes[roomState.youId];
 
@@ -294,6 +303,68 @@ export function Lobby({
                 ))}
               </div>
             </div>
+          </div>
+        )}
+
+        {showShooterSettings && (
+          <div className="race-settings-section">
+            <h3>Arena Shooter options</h3>
+            <div className="race-settings-group">
+              <span className="race-settings-label">Aiming</span>
+              <div className="pick-mode-tabs">
+                {SHOOTER_AIM_OPTIONS.map((opt) => (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    className={`pick-mode-tab ${roomState.shooterSettings.aimMode === opt.id ? "active" : ""}`}
+                    disabled={!isHost}
+                    onClick={() => onSetShooterSettings({ aimMode: opt.id })}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+              <p className="hint">
+                {
+                  SHOOTER_AIM_OPTIONS.find(
+                    (o) => o.id === roomState.shooterSettings.aimMode,
+                  )?.desc
+                }
+              </p>
+            </div>
+            <div className="shooter-settings-grid">
+              {SHOOTER_NUMERIC_SETTINGS.map((def) => {
+                const value = roomState.shooterSettings[def.key];
+                return (
+                  <label key={def.key} className="shooter-setting-row">
+                    <span className="shooter-setting-label">
+                      {def.label}
+                      <strong>
+                        {value}
+                        {def.unit ? ` ${def.unit}` : ""}
+                      </strong>
+                    </span>
+                    <input
+                      type="range"
+                      min={def.min}
+                      max={def.max}
+                      step={def.step}
+                      value={value}
+                      disabled={!isHost}
+                      onChange={(e) =>
+                        onSetShooterSettings({
+                          [def.key]: Number(e.target.value),
+                        } as Partial<ShooterSettings>)
+                      }
+                    />
+                  </label>
+                );
+              })}
+            </div>
+            <p className="hint">
+              Finite ammo — return to your team&apos;s colored rear zone to reload. Extended Mag
+              powerup boosts capacity. One bomb per round (B).
+            </p>
           </div>
         )}
 

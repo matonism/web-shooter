@@ -1,5 +1,7 @@
 import { ARENA, PLAYER } from "../shared/constants.ts";
 import type { PlayerInput, PowerupKind, Team } from "../shared/types.ts";
+import type { ShooterAimMode } from "../shared/shooterSettings.ts";
+import { isInResupplyZone, resupplyZoneCenter } from "../shared/shooterResupply.ts";
 
 interface ShooterBotContext {
   id: string;
@@ -8,16 +10,20 @@ interface ShooterBotContext {
   y: number;
   angle: number;
   eliminated: boolean;
+  bombPlaced: boolean;
+  ammo: number;
+  maxAmmo: number;
 }
 
 interface ShooterBotWorld {
   self: ShooterBotContext;
   enemies: ShooterBotContext[];
   powerups: { x: number; y: number; kind: PowerupKind }[];
+  aimMode: ShooterAimMode;
 }
 
 export function computeShooterBotInput(world: ShooterBotWorld): PlayerInput {
-  const { self, enemies, powerups } = world;
+  const { self, enemies, powerups, aimMode } = world;
   let target = enemies[0];
   let bestDist = Infinity;
   for (const e of enemies) {
@@ -34,8 +40,20 @@ export function computeShooterBotInput(world: ShooterBotWorld): PlayerInput {
   let moveDx = 0;
   let moveDy = 0;
   let fire = false;
+  let bomb = false;
 
-  if (target && !target.eliminated) {
+  const inZone = isInResupplyZone(self.x, self.y, self.team);
+  const needsAmmo = self.ammo <= Math.max(3, Math.floor(self.maxAmmo * 0.2));
+
+  if (needsAmmo && !inZone) {
+    const home = resupplyZoneCenter(self.team);
+    const toX = home.x - self.x;
+    const toY = home.y - self.y;
+    const d = Math.hypot(toX, toY) || 1;
+    moveDx = toX / d;
+    moveDy = toY / d;
+    fire = false;
+  } else if (target && !target.eliminated) {
     aimX = target.x;
     aimY = target.y;
     const toX = target.x - self.x;
@@ -55,25 +73,27 @@ export function computeShooterBotInput(world: ShooterBotWorld): PlayerInput {
       moveDy = ny * 0.35 - nx * 0.65 * (Math.random() > 0.5 ? 1 : -1);
     }
 
-    fire = dist < 520 && Math.random() > 0.08;
+    fire = dist < 520 && Math.random() > 0.08 && self.ammo > 0;
   }
 
-  let nearestPu: { x: number; y: number } | null = null;
-  let puDist = Infinity;
-  for (const pu of powerups) {
-    const d = Math.hypot(pu.x - self.x, pu.y - self.y);
-    if (d < puDist && d < 220) {
-      puDist = d;
-      nearestPu = pu;
+  if (!needsAmmo || inZone) {
+    let nearestPu: { x: number; y: number } | null = null;
+    let puDist = Infinity;
+    for (const pu of powerups) {
+      const d = Math.hypot(pu.x - self.x, pu.y - self.y);
+      if (d < puDist && d < 220) {
+        puDist = d;
+        nearestPu = pu;
+      }
     }
-  }
-  if (nearestPu && (!target || bestDist > 280) && Math.random() > 0.35) {
-    const toX = nearestPu.x - self.x;
-    const toY = nearestPu.y - self.y;
-    const d = Math.hypot(toX, toY) || 1;
-    moveDx = toX / d;
-    moveDy = toY / d;
-    fire = false;
+    if (nearestPu && (!target || bestDist > 280) && Math.random() > 0.35) {
+      const toX = nearestPu.x - self.x;
+      const toY = nearestPu.y - self.y;
+      const d = Math.hypot(toX, toY) || 1;
+      moveDx = toX / d;
+      moveDy = toY / d;
+      fire = false;
+    }
   }
 
   const len = Math.hypot(moveDx, moveDy);
@@ -82,8 +102,24 @@ export function computeShooterBotInput(world: ShooterBotWorld): PlayerInput {
     moveDy /= len;
   }
 
-  const angle = Math.atan2(aimY - self.y, aimX - self.x);
-  return { seq: 0, dx: moveDx, dy: moveDy, angle, fire };
+  let angle: number;
+  if (aimMode === "movement" && len >= 0.2) {
+    angle = Math.atan2(moveDy, moveDx);
+  } else {
+    angle = Math.atan2(aimY - self.y, aimX - self.x);
+  }
+
+  if (
+    !self.bombPlaced &&
+    target &&
+    !target.eliminated &&
+    bestDist < 140 &&
+    Math.random() > 0.992
+  ) {
+    bomb = true;
+  }
+
+  return { seq: 0, dx: moveDx, dy: moveDy, angle, fire, bomb };
 }
 
 export function isBotId(id: string): boolean {

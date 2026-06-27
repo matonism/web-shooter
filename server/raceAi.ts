@@ -43,5 +43,5 @@ export function computeRaceBotInput(
 
   if (Math.random() < 0.002) dx = -0.4;
 
-  return { seq: 0, dx, dy: 0, angle: 0, fire: jump };
+  return { seq: 0, dx, dy: 0, angle: 0, fire: jump, bomb: false };
 }
