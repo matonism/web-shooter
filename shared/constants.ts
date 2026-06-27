@@ -10,19 +10,32 @@ export const ARENA = {
 } as const;
 
 export const PLAYER = {
-  radius: 18,
-  speed: 200,
-  maxHp: 100,
+  radius: 30,
+  speed: 270,
+  maxHp: 200,
 } as const;
 
 export const BULLET = {
   radius: 4,
-  speed: 480,
+  speed: 250,
   damage: 25,
   lifetimeMs: 2000,
 } as const;
 
-export const FIRE_COOLDOWN_MS = 280;
+export const FIRE_COOLDOWN_MS = 1000;
+
+export const POWERUP = {
+  radius: 14,
+  spawnIntervalMs: 12_000,
+  maxOnField: 2,
+  lifetimeMs: 18_000,
+  effectDurationMs: 8_000,
+  shieldCapacity: 50,
+  speedMultiplier: 1.55,
+  rapidCooldownMult: 0.42,
+} as const;
+
+export type BulletKind = "normal" | "heavy" | "spread";
 
 export const TEAM_COLORS = {
   red: {

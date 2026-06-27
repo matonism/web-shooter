@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { ARENA, TICK_MS } from "@shared/constants";
+import { ARENA } from "@shared/constants";
 import type { RoomStatePublic } from "@shared/types";
 import { MobileControls } from "../components/MobileControls";
 import { isTouchDevice } from "../utils/touchDevice";
@@ -15,7 +15,6 @@ export function GameCanvas({ roomState, onInput }: GameCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const gameRef = useRef(new ClientGame());
   const rafRef = useRef(0);
-  const inputTimerRef = useRef(0);
   const roomStateRef = useRef(roomState);
   roomStateRef.current = roomState;
   const [touchControls] = useState(isTouchDevice);
@@ -28,6 +27,9 @@ export function GameCanvas({ roomState, onInput }: GameCanvasProps) {
     if (!canvas) return;
     gameRef.current.bindInput(canvas);
     gameRef.current.setLocalId(roomState.youId);
+    gameRef.current.setInputFlush((input) => {
+      if (roomStateRef.current.phase === "playing") onInput(input);
+    });
 
     const localPlayer = roomState.world?.players.find((p) => p.id === roomState.youId);
     if (localPlayer) gameRef.current.resetFromPlayer(localPlayer);
@@ -46,6 +48,7 @@ export function GameCanvas({ roomState, onInput }: GameCanvasProps) {
       if (state.phase === "playing" && state.world) {
         const input = gameRef.current.buildInput();
         gameRef.current.applyLocalPrediction(input, dt);
+        onInput(input);
       }
 
       const renderState = gameRef.current.getRenderState();
@@ -55,16 +58,10 @@ export function GameCanvas({ roomState, onInput }: GameCanvasProps) {
     };
 
     rafRef.current = requestAnimationFrame(loop);
-    inputTimerRef.current = window.setInterval(() => {
-      const state = roomStateRef.current;
-      if (state.phase === "playing") {
-        onInput(gameRef.current.buildInput());
-      }
-    }, TICK_MS);
 
     return () => {
+      gameRef.current.setInputFlush(null);
       cancelAnimationFrame(rafRef.current);
-      clearInterval(inputTimerRef.current);
     };
   }, [roomState.youId, onInput]);
 
@@ -85,7 +82,6 @@ export function GameCanvas({ roomState, onInput }: GameCanvasProps) {
       {touchControls && (
         <MobileControls
           game={gameRef.current}
-          canvasRef={canvasRef}
           disabled={eliminated}
         />
       )}

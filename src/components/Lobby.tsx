@@ -7,6 +7,7 @@ interface LobbyProps {
   onStart: () => void;
   onBackToLobby: () => void;
   onCloseRoom: () => void;
+  onLeaveRoom: () => void;
 }
 
 export function Lobby({
@@ -15,6 +16,7 @@ export function Lobby({
   onStart,
   onBackToLobby,
   onCloseRoom,
+  onLeaveRoom,
 }: LobbyProps) {
   const isHost = roomState.hostId === roomState.youId;
   const me = roomState.players.find((p) => p.id === roomState.youId);
@@ -35,11 +37,21 @@ export function Lobby({
             {winner?.toUpperCase()} TEAM WINS
           </p>
           {isHost ? (
-            <button type="button" className="btn btn-primary" onClick={onBackToLobby}>
-              Back to Lobby
-            </button>
+            <div className="btn-row">
+              <button type="button" className="btn btn-primary" onClick={onBackToLobby}>
+                Back to Lobby
+              </button>
+              <button type="button" className="btn btn-secondary" onClick={onLeaveRoom}>
+                Leave Room
+              </button>
+            </div>
           ) : (
-            <p className="hint">Waiting for host…</p>
+            <>
+              <p className="hint">Waiting for host…</p>
+              <button type="button" className="btn btn-secondary" onClick={onLeaveRoom} style={{ marginTop: "0.75rem", width: "100%" }}>
+                Leave Room
+              </button>
+            </>
           )}
         </div>
       </div>
@@ -103,7 +115,12 @@ export function Lobby({
             </button>
           </div>
         ) : (
-          <p className="hint">Pick a team. Waiting for host to start…</p>
+          <>
+            <p className="hint">Pick a team. Waiting for host to start…</p>
+            <button type="button" className="btn btn-secondary" onClick={onLeaveRoom} style={{ width: "100%", marginTop: "0.75rem" }}>
+              Leave Room
+            </button>
+          </>
         )}
 
         {!canStart && isHost && (

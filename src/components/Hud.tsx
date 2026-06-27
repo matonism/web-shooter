@@ -1,3 +1,4 @@
+import { POWERUP_DEFS } from "@shared/powerups";
 import type { RoomStatePublic } from "@shared/types";
 
 interface HudProps {
@@ -8,6 +9,10 @@ export function Hud({ roomState }: HudProps) {
   const me = roomState.world?.players.find((p) => p.id === roomState.youId);
   const redPlayers = roomState.world?.players.filter((p) => p.team === "red") ?? [];
   const bluePlayers = roomState.world?.players.filter((p) => p.team === "blue") ?? [];
+  const now = Date.now();
+
+  const hasBoost = (p: { activePowerups: { until: number }[]; shield: number }) =>
+    p.shield > 0 || p.activePowerups.some((e) => e.until > now);
 
   return (
     <div className="hud">
@@ -21,6 +26,24 @@ export function Hud({ roomState }: HudProps) {
                 style={{ width: `${(me.hp / me.maxHp) * 100}%` }}
               />
             </div>
+            {me.shield > 0 && (
+              <div className="hud-shield">Shield {me.shield}</div>
+            )}
+            {me.activePowerups.map((effect) => {
+              const def = POWERUP_DEFS[effect.kind];
+              const seconds =
+                effect.until > now ? Math.ceil((effect.until - now) / 1000) : null;
+              return (
+                <div
+                  key={effect.kind}
+                  className="hud-powerup"
+                  style={{ color: def.color }}
+                >
+                  {def.label}
+                  {seconds !== null ? ` · ${seconds}s` : ""}
+                </div>
+              );
+            })}
           </div>
         )}
 
@@ -33,7 +56,11 @@ export function Hud({ roomState }: HudProps) {
               key={p.id}
               className={`scoreboard-row ${p.eliminated ? "eliminated" : ""}`}
             >
-              <span>{p.name}{p.id === roomState.youId ? " (you)" : ""}</span>
+              <span>
+                {p.name}
+                {p.id === roomState.youId ? " (you)" : ""}
+                {hasBoost(p) ? " ⚡" : ""}
+              </span>
               <span>{p.hp}</span>
             </div>
           ))}
@@ -52,7 +79,11 @@ export function Hud({ roomState }: HudProps) {
               key={p.id}
               className={`scoreboard-row ${p.eliminated ? "eliminated" : ""}`}
             >
-              <span>{p.name}{p.id === roomState.youId ? " (you)" : ""}</span>
+              <span>
+                {p.name}
+                {p.id === roomState.youId ? " (you)" : ""}
+                {hasBoost(p) ? " ⚡" : ""}
+              </span>
               <span>{p.hp}</span>
             </div>
           ))}

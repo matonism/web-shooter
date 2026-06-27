@@ -1,6 +1,11 @@
 export type Team = "red" | "blue";
 export type GamePhase = "lobby" | "playing" | "finished";
 
+import type { BulletKind } from "./constants.ts";
+import type { PowerupKind } from "./powerups.ts";
+
+export type { BulletKind, PowerupKind };
+
 export interface Vec2 {
   x: number;
   y: number;
@@ -13,6 +18,19 @@ export interface BulletState {
   angle: number;
   team: Team;
   ownerId: string;
+  kind: BulletKind;
+}
+
+export interface PowerupState {
+  id: string;
+  kind: PowerupKind;
+  x: number;
+  y: number;
+}
+
+export interface PlayerPowerup {
+  kind: PowerupKind;
+  until: number;
 }
 
 export interface PlayerState {
@@ -26,6 +44,9 @@ export interface PlayerState {
   maxHp: number;
   eliminated: boolean;
   connected: boolean;
+  activePowerups: PlayerPowerup[];
+  shield: number;
+  speedMultiplier: number;
 }
 
 export interface WorldSnapshot {
@@ -33,6 +54,7 @@ export interface WorldSnapshot {
   timestamp: number;
   players: PlayerState[];
   bullets: BulletState[];
+  powerups: PowerupState[];
 }
 
 export interface PlayerInput {
@@ -92,6 +114,7 @@ export interface ClientToServerEvents {
   startGame: () => void;
   backToLobby: () => void;
   closeRoom: () => void;
+  leaveRoom: () => void;
   input: (payload: PlayerInput) => void;
 }
 
@@ -99,6 +122,7 @@ export interface ServerToClientEvents {
   state: (state: RoomStatePublic) => void;
   errorMsg: (msg: string) => void;
   roomClosed: (reason: string) => void;
+  leftRoom: () => void;
 }
 
 export interface RejoinSession {

@@ -1,5 +1,12 @@
 import { ARENA, PLAYER, TICK_MS } from "@shared/constants";
-import type { PlayerInput, PlayerState, WorldSnapshot } from "@shared/types";
+import { stepMovement } from "@shared/movement";
+import type {
+  BulletKind,
+  PlayerInput,
+  PlayerState,
+  PowerupKind,
+  WorldSnapshot,
+} from "@shared/types";
 import { clamp, lerpAngle, Vec2 } from "./vector";
 
 export interface RenderPlayer {
@@ -13,6 +20,8 @@ export interface RenderPlayer {
   maxHp: number;
   eliminated: boolean;
   isLocal: boolean;
+  shield: number;
+  activePowerups: PowerupKind[];
 }
 
 export interface RenderBullet {
@@ -21,11 +30,20 @@ export interface RenderBullet {
   y: number;
   angle: number;
   team: "red" | "blue";
+  kind: BulletKind;
+}
+
+export interface RenderPowerup {
+  id: string;
+  kind: PowerupKind;
+  x: number;
+  y: number;
 }
 
 export interface RenderState {
   players: RenderPlayer[];
   bullets: RenderBullet[];
+  powerups: RenderPowerup[];
 }
 
 interface InterpTarget {
@@ -45,18 +63,25 @@ export class ClientGame {
     enabled: false,
     moveX: 0,
     moveY: 0,
-    aimAngle: 0,
     firing: false,
   };
 
-  /** Predicted local position */
+  private fireTouchId: number | null = null;
+  private touchAimAngle = 0;
+  /** Keeps fire=true briefly so quick taps reach the 30Hz input send */
+  private fireUntil = 0;
+  private inputFlush: ((input: PlayerInput) => void) | null = null;
+
+  /** Authoritative local prediction (input-driven) */
   private predX = 0;
   private predY = 0;
   private predAngle = 0;
+  private localSpeedMult = 1;
+  private predAccumulator = 0;
+  private lastMoveDx = 0;
+  private lastMoveDy = 0;
 
-  /** Soft correction toward server position (decays each frame) */
-  private corrX = 0;
-  private corrY = 0;
+  private static readonly TICK_S = TICK_MS / 1000;
 
   private interp: InterpTarget | null = null;
   private lastSnapshot: WorldSnapshot | null = null;
@@ -72,28 +97,44 @@ export class ClientGame {
   setTouchControls(partial: {
     moveX?: number;
     moveY?: number;
-    aimAngle?: number;
     firing?: boolean;
   }) {
     Object.assign(this.touch, partial);
   }
 
-  getTouchAimAngle(): number {
-    return this.touch.aimAngle;
+  setTouchMove(moveX: number, moveY: number) {
+    this.touch.moveX = moveX;
+    this.touch.moveY = moveY;
   }
 
-  /** Player position in viewport coordinates for mobile aim. */
-  getLocalScreenPosition(canvas: HTMLCanvasElement | null): { x: number; y: number } | null {
-    if (!canvas) return null;
-    const local = this.getRenderState()?.players.find((p) => p.isLocal);
-    if (!local) return null;
+  setInputFlush(fn: ((input: PlayerInput) => void) | null) {
+    this.inputFlush = fn;
+  }
+
+  private flushInput() {
+    this.inputFlush?.(this.buildInput());
+  }
+
+  private updateTouchAim(canvas: HTMLCanvasElement, clientX: number, clientY: number) {
+    const world = this.clientToWorld(canvas, clientX, clientY);
+    this.mouseWorld.x = world.x;
+    this.mouseWorld.y = world.y;
+    this.touchAimAngle = Math.atan2(world.y - this.predY, world.x - this.predX);
+    this.predAngle = this.touchAimAngle;
+  }
+
+  private beginTouchFire(canvas: HTMLCanvasElement, clientX: number, clientY: number) {
+    this.updateTouchAim(canvas, clientX, clientY);
+    this.touch.firing = true;
+    this.fireUntil = performance.now() + 120;
+    this.flushInput();
+  }
+
+  private clientToWorld(canvas: HTMLCanvasElement, clientX: number, clientY: number): Vec2 {
     const rect = canvas.getBoundingClientRect();
-    const scaleX = rect.width / ARENA.width;
-    const scaleY = rect.height / ARENA.height;
-    return {
-      x: rect.left + local.x * scaleX,
-      y: rect.top + local.y * scaleY,
-    };
+    const scaleX = ARENA.width / rect.width;
+    const scaleY = ARENA.height / rect.height;
+    return new Vec2((clientX - rect.left) * scaleX, (clientY - rect.top) * scaleY);
   }
 
   bindInput(canvas: HTMLCanvasElement) {
@@ -115,12 +156,16 @@ export class ClientGame {
         case "ArrowRight":
           this.keys.right = down;
           break;
+        default:
+          return;
       }
+      if (down) e.preventDefault();
     };
     window.addEventListener("keydown", (e) => onKey(e, true));
     window.addEventListener("keyup", (e) => onKey(e, false));
 
     canvas.addEventListener("mousemove", (e) => {
+      if (this.touch.enabled) return;
       const rect = canvas.getBoundingClientRect();
       const scaleX = ARENA.width / rect.width;
       const scaleY = ARENA.height / rect.height;
@@ -128,12 +173,60 @@ export class ClientGame {
       this.mouseWorld.y = (e.clientY - rect.top) * scaleY;
     });
 
-    canvas.addEventListener("mousedown", () => {
+    canvas.addEventListener("mousedown", (e) => {
+      if (this.touch.enabled) return;
+      e.preventDefault();
       this.firing = true;
     });
     window.addEventListener("mouseup", () => {
+      if (this.touch.enabled) return;
       this.firing = false;
     });
+
+    canvas.addEventListener(
+      "touchstart",
+      (e) => {
+        if (!this.touch.enabled) return;
+        for (let i = 0; i < e.changedTouches.length; i++) {
+          const t = e.changedTouches[i]!;
+          if (t.target !== canvas) continue;
+          e.preventDefault();
+          this.fireTouchId = t.identifier;
+          this.beginTouchFire(canvas, t.clientX, t.clientY);
+        }
+      },
+      { passive: false },
+    );
+
+    canvas.addEventListener(
+      "touchmove",
+      (e) => {
+        if (!this.touch.enabled || this.fireTouchId === null) return;
+        for (let i = 0; i < e.changedTouches.length; i++) {
+          const t = e.changedTouches[i]!;
+          if (t.identifier !== this.fireTouchId) continue;
+          e.preventDefault();
+          this.updateTouchAim(canvas, t.clientX, t.clientY);
+          this.fireUntil = performance.now() + 120;
+          this.flushInput();
+        }
+      },
+      { passive: false },
+    );
+
+    const endFireTouch = (e: TouchEvent) => {
+      if (!this.touch.enabled) return;
+      for (let i = 0; i < e.changedTouches.length; i++) {
+        const t = e.changedTouches[i]!;
+        if (t.identifier === this.fireTouchId) {
+          e.preventDefault();
+          this.fireTouchId = null;
+          this.touch.firing = false;
+        }
+      }
+    };
+    canvas.addEventListener("touchend", endFireTouch);
+    canvas.addEventListener("touchcancel", endFireTouch);
   }
 
   buildInput(): PlayerInput {
@@ -142,16 +235,22 @@ export class ClientGame {
     let angle: number;
     let fire: boolean;
 
+    if (this.keys.up) dy -= 1;
+    if (this.keys.down) dy += 1;
+    if (this.keys.left) dx -= 1;
+    if (this.keys.right) dx += 1;
+
     if (this.touch.enabled) {
-      dx = this.touch.moveX;
-      dy = this.touch.moveY;
-      angle = this.touch.aimAngle;
-      fire = this.touch.firing;
+      dx += this.touch.moveX;
+      dy += this.touch.moveY;
+      const len = Math.hypot(dx, dy);
+      if (len > 1) {
+        dx /= len;
+        dy /= len;
+      }
+      angle = this.touchAimAngle;
+      fire = this.touch.firing || performance.now() < this.fireUntil;
     } else {
-      if (this.keys.up) dy -= 1;
-      if (this.keys.down) dy += 1;
-      if (this.keys.left) dx -= 1;
-      if (this.keys.right) dx += 1;
       angle = Math.atan2(
         this.mouseWorld.y - this.predY,
         this.mouseWorld.x - this.predX,
@@ -160,67 +259,60 @@ export class ClientGame {
     }
 
     this.inputSeq += 1;
-    return {
-      seq: this.inputSeq,
-      dx,
-      dy,
-      angle,
-      fire,
-    };
+    return { seq: this.inputSeq, dx, dy, angle, fire };
   }
 
   applyLocalPrediction(input: PlayerInput, dt: number) {
     this.predAngle = input.angle;
-    const len = Math.hypot(input.dx, input.dy);
-    if (len > 0.01) {
-      const nx = input.dx / len;
-      const ny = input.dy / len;
-      this.predX = clamp(
-        this.predX + nx * PLAYER.speed * dt,
-        PLAYER.radius,
-        ARENA.width - PLAYER.radius,
+    this.lastMoveDx = input.dx;
+    this.lastMoveDy = input.dy;
+    this.predAccumulator += dt;
+
+    const speed = PLAYER.speed * this.localSpeedMult;
+    while (this.predAccumulator >= ClientGame.TICK_S) {
+      this.predAccumulator -= ClientGame.TICK_S;
+      const next = stepMovement(
+        this.predX,
+        this.predY,
+        input.dx,
+        input.dy,
+        speed,
+        ClientGame.TICK_S,
       );
-      this.predY = clamp(
-        this.predY + ny * PLAYER.speed * dt,
-        PLAYER.radius,
-        ARENA.height - PLAYER.radius,
-      );
+      this.predX = next.x;
+      this.predY = next.y;
     }
-
-    // Decay server correction smoothly instead of snapping each tick
-    const decay = 1 - Math.pow(0.001, dt);
-    this.corrX *= 1 - decay;
-    this.corrY *= 1 - decay;
   }
 
-  /** Display position for local player (prediction + soft correction) */
-  private localDisplayX(): number {
-    return this.predX + this.corrX;
-  }
-
-  private localDisplayY(): number {
-    return this.predY + this.corrY;
+  /** Smooth sub-tick position for rendering (matches server tick + visual interpolation). */
+  private localDisplayPos(): { x: number; y: number } {
+    const frac = this.predAccumulator / ClientGame.TICK_S;
+    if (frac <= 0.001) return { x: this.predX, y: this.predY };
+    const speed = PLAYER.speed * this.localSpeedMult;
+    return stepMovement(
+      this.predX,
+      this.predY,
+      this.lastMoveDx,
+      this.lastMoveDy,
+      speed,
+      ClientGame.TICK_S * frac,
+    );
   }
 
   onServerSnapshot(world: WorldSnapshot) {
     const local = world.players.find((p) => p.id === this.localId);
     if (local) {
+      this.localSpeedMult = local.speedMultiplier;
       const errX = local.x - this.predX;
       const errY = local.y - this.predY;
       const dist = Math.hypot(errX, errY);
 
-      if (dist > 80) {
-        // Large desync — snap (teleport, lag spike, etc.)
+      // Only hard-snap on large desync — small drift is normal between 30Hz ticks
+      if (dist > 90) {
         this.predX = local.x;
         this.predY = local.y;
-        this.corrX = 0;
-        this.corrY = 0;
-      } else if (dist > 0.5) {
-        // Absorb error into correction buffer; render catches up smoothly
-        this.corrX += errX * 0.35;
-        this.corrY += errY * 0.35;
+        this.predAccumulator = 0;
       }
-      // Keep local aim from mouse input — don't overwrite predAngle from server
     }
 
     if (this.lastSnapshot) {
@@ -243,6 +335,14 @@ export class ClientGame {
       y: b.y,
       angle: b.angle,
       team: b.team,
+      kind: b.kind,
+    }));
+
+    const powerups: RenderPowerup[] = (this.lastSnapshot.powerups ?? []).map((pu) => ({
+      id: pu.id,
+      kind: pu.kind,
+      x: pu.x,
+      y: pu.y,
     }));
 
     const t = this.interp
@@ -251,17 +351,20 @@ export class ClientGame {
 
     for (const p of this.lastSnapshot.players) {
       if (p.id === this.localId) {
+        const pos = this.localDisplayPos();
         players.push({
           id: p.id,
           name: p.name,
           team: p.team,
-          x: this.localDisplayX(),
-          y: this.localDisplayY(),
+          x: pos.x,
+          y: pos.y,
           angle: this.predAngle,
           hp: p.hp,
           maxHp: p.maxHp,
           eliminated: p.eliminated,
           isLocal: true,
+          shield: p.shield,
+          activePowerups: p.activePowerups.map((e) => e.kind),
         });
       } else {
         const interpPos = this.interpolatePlayer(p.id, t);
@@ -276,11 +379,13 @@ export class ClientGame {
           maxHp: p.maxHp,
           eliminated: p.eliminated,
           isLocal: false,
+          shield: p.shield,
+          activePowerups: p.activePowerups.map((e) => e.kind),
         });
       }
     }
 
-    return { players, bullets };
+    return { players, bullets, powerups };
   }
 
   private interpolatePlayer(
@@ -302,8 +407,14 @@ export class ClientGame {
     this.predX = p.x;
     this.predY = p.y;
     this.predAngle = p.angle;
-    this.touch.aimAngle = p.angle;
-    this.corrX = 0;
-    this.corrY = 0;
+    this.localSpeedMult = p.speedMultiplier;
+    this.predAccumulator = 0;
+    this.lastMoveDx = 0;
+    this.lastMoveDy = 0;
+    this.touchAimAngle = p.angle;
+    this.mouseWorld.x = p.x + Math.cos(p.angle) * 80;
+    this.mouseWorld.y = p.y + Math.sin(p.angle) * 80;
+    this.fireTouchId = null;
+    this.touch.firing = false;
   }
 }

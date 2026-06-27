@@ -17,21 +17,39 @@ export default function App() {
     startGame,
     backToLobby,
     closeRoom,
+    leaveRoom,
     sendInput,
   } = useSocket();
 
-  const [name, setName] = useState("");
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [createName, setCreateName] = useState("");
+  const [joinName, setJoinName] = useState("");
   const [joinCode, setJoinCode] = useState("");
 
   const inGame = roomState?.phase === "playing";
+
+  const handleCreate = () => {
+    const trimmed = createName.trim();
+    if (!trimmed) return;
+    createRoom(trimmed);
+    setShowCreateModal(false);
+    setCreateName("");
+  };
 
   return (
     <div className="app">
       <header className="app-header">
         <h1 className="app-title">Neon Blasters</h1>
-        <span className={`status-badge ${connected ? "online" : ""}`}>
-          {connected ? "● Online" : "○ Connecting…"}
-        </span>
+        <div className="app-header-actions">
+          {roomState && (
+            <button type="button" className="btn-leave" onClick={leaveRoom}>
+              Leave Room
+            </button>
+          )}
+          <span className={`status-badge ${connected ? "online" : ""}`}>
+            {connected ? "● Online" : "○ Connecting…"}
+          </span>
+        </div>
       </header>
 
       {!connected && (
@@ -43,53 +61,53 @@ export default function App() {
       {error && <div className="toast">{error}</div>}
 
       {!roomState && (
-        <div className="lobby">
+        <div className="lobby home-lobby">
           {roomClosed && (
-            <p className="hint" style={{ color: "var(--danger)" }}>
-              {roomClosed}
-            </p>
+            <p className="hint hint--danger">{roomClosed}</p>
           )}
-          <div className="lobby-card">
-            <h2>Play</h2>
-            <div className="field">
-              <label htmlFor="name">Your name</label>
-              <input
-                id="name"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="Operator"
-                maxLength={20}
-              />
-            </div>
-            <div className="btn-row">
-              <button
-                type="button"
-                className="btn btn-primary"
-                disabled={!name.trim() || !connected}
-                onClick={() => createRoom(name.trim())}
-              >
-                Create Room
-              </button>
-            </div>
+
+          <div className="lobby-card home-create-card">
+            <h2>Host a match</h2>
+            <p className="home-card-desc">Create a room and share the code with friends.</p>
+            <button
+              type="button"
+              className="btn btn-primary home-create-btn"
+              disabled={!connected}
+              onClick={() => setShowCreateModal(true)}
+            >
+              Create Room
+            </button>
           </div>
 
           <div className="lobby-card">
-            <h2>Join</h2>
+            <h2>Join a match</h2>
             <div className="field">
-              <label htmlFor="code">Room code</label>
+              <label htmlFor="join-name">Your name</label>
               <input
-                id="code"
+                id="join-name"
+                value={joinName}
+                onChange={(e) => setJoinName(e.target.value)}
+                placeholder="Operator"
+                maxLength={20}
+                autoComplete="nickname"
+              />
+            </div>
+            <div className="field">
+              <label htmlFor="join-code">Room code</label>
+              <input
+                id="join-code"
                 value={joinCode}
                 onChange={(e) => setJoinCode(e.target.value.toUpperCase())}
                 placeholder="ABC123"
                 maxLength={6}
+                autoComplete="off"
               />
             </div>
             <button
               type="button"
               className="btn btn-secondary"
-              disabled={!name.trim() || joinCode.length < 4 || !connected}
-              onClick={() => joinRoom(joinCode.trim(), name.trim())}
+              disabled={!joinName.trim() || joinCode.length < 4 || !connected}
+              onClick={() => joinRoom(joinCode.trim(), joinName.trim())}
               style={{ width: "100%" }}
             >
               Join Room
@@ -98,8 +116,58 @@ export default function App() {
 
           <p className="hint">
             WASD move · Mouse aim · Click to fire · Up to 6 players
-            {isTouchDevice() && " · Mobile: left stick + right drag to aim/fire"}
+            {isTouchDevice() && " · Mobile: left stick or WASD to move, tap arena to aim & shoot"}
           </p>
+        </div>
+      )}
+
+      {showCreateModal && (
+        <div
+          className="modal-overlay"
+          onClick={() => setShowCreateModal(false)}
+          role="presentation"
+        >
+          <div
+            className="modal-card"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-labelledby="create-modal-title"
+          >
+            <h2 id="create-modal-title">Create Room</h2>
+            <p className="modal-desc">Pick a name to show in the lobby.</p>
+            <div className="field">
+              <label htmlFor="create-name">Your name</label>
+              <input
+                id="create-name"
+                value={createName}
+                onChange={(e) => setCreateName(e.target.value)}
+                placeholder="Operator"
+                maxLength={20}
+                autoComplete="nickname"
+                autoFocus
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") handleCreate();
+                }}
+              />
+            </div>
+            <div className="btn-row">
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => setShowCreateModal(false)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                disabled={!createName.trim() || !connected}
+                onClick={handleCreate}
+              >
+                Create
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
@@ -110,6 +178,7 @@ export default function App() {
           onStart={startGame}
           onBackToLobby={backToLobby}
           onCloseRoom={closeRoom}
+          onLeaveRoom={leaveRoom}
         />
       )}
 

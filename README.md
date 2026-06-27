@@ -72,7 +72,7 @@ Open `http://localhost:5173` in the browser. Use multiple tabs or windows to tes
 2. Pick **Red** or **Blue** (up to 3 players per team, 6 total).
 3. The host clicks **Start Match** once at least one player is on each team.
 4. **WASD** — move · **Mouse** — aim · **Click** — fire
-5. On **mobile/touch**: left stick to move · drag the right side to aim · hold to shoot
+5. On **mobile/touch**: left stick to move · **tap/hold the arena** to aim & shoot (same as mouse on desktop)
 6. Last team standing wins. Eliminated players stay on the board but cannot act.
 
 ### Game rules (defaults)
@@ -84,6 +84,20 @@ Open `http://localhost:5173` in the browser. Use multiple tabs or windows to tes
 | Bullet damage | 25 (4 hits to eliminate) |
 | Server tick rate | 30 Hz |
 | Respawn | None (elimination mode) |
+
+### Powerups
+
+Powerups spawn in the arena every **12 seconds** (up to 2 on the field). Walk over one to pick it up.
+
+| Powerup | Effect | Duration |
+|---------|--------|----------|
+| **Speed Boost** (S) | Move 55% faster | 8s |
+| **Rapid Fire** (R) | Much faster shooting | 8s |
+| **Spread Shot** (W) | Fires 3 bullets in a spread | 8s |
+| **Heavy Slug** (H) | Slow, large bullets — 40 damage | 8s |
+| **Energy Shield** (⛨) | Absorbs 50 damage, then breaks | Until depleted |
+
+New pickups stack — timed effects combine, duplicate pickups extend duration, and shields add capacity.
 
 ## Architecture
 

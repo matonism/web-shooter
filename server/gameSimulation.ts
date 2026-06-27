@@ -5,13 +5,19 @@ import {
   FIRE_COOLDOWN_MS,
   MAX_PER_TEAM,
   PLAYER,
+  POWERUP,
   SPAWN_POINTS,
   TICK_MS,
 } from "../shared/constants.ts";
+import { stepMovement } from "../shared/movement.ts";
+import { ALL_POWERUP_KINDS } from "../shared/powerups.ts";
 import type {
+  BulletKind,
   BulletState,
   PlayerInput,
   PlayerState,
+  PowerupKind,
+  PowerupState,
   Team,
   WorldSnapshot,
 } from "../shared/types.ts";
@@ -28,6 +34,9 @@ interface InternalPlayer {
   connected: boolean;
   lastFireAt: number;
   pendingInput: PlayerInput | null;
+  lastInput: PlayerInput | null;
+  activePowerups: { kind: PowerupKind; until: number }[];
+  shield: number;
 }
 
 interface InternalBullet {
@@ -40,19 +49,35 @@ interface InternalBullet {
   team: Team;
   ownerId: string;
   spawnedAt: number;
+  kind: BulletKind;
+  damage: number;
+  radius: number;
+}
+
+interface InternalPowerup {
+  id: string;
+  kind: PowerupKind;
+  x: number;
+  y: number;
+  spawnedAt: number;
 }
 
 export class GameSimulation {
   tick = 0;
   players = new Map<string, InternalPlayer>();
   bullets: InternalBullet[] = [];
+  powerups: InternalPowerup[] = [];
   winner: Team | null = null;
+  private lastPowerupSpawnAt = 0;
 
   reset() {
     this.tick = 0;
     this.bullets = [];
+    this.powerups = [];
     this.winner = null;
+    this.lastPowerupSpawnAt = Date.now();
     for (const p of this.players.values()) {
+      this.clearPowerups(p);
       this.respawnPlayer(p);
     }
   }
@@ -70,6 +95,9 @@ export class GameSimulation {
       connected: true,
       lastFireAt: 0,
       pendingInput: null,
+      lastInput: null,
+      activePowerups: [],
+      shield: 0,
     });
   }
 
@@ -110,57 +138,191 @@ export class GameSimulation {
     const p = this.players.get(id);
     if (!p || p.eliminated) return;
     p.pendingInput = input;
+    p.lastInput = input;
   }
 
   step(): WorldSnapshot {
     this.tick += 1;
+    const now = Date.now();
     const dt = TICK_MS / 1000;
 
+    this.tickPowerups(now);
+
     for (const p of this.players.values()) {
-      if (p.eliminated || !p.pendingInput) continue;
-      const { dx, dy, angle, fire } = p.pendingInput;
+      this.refreshPowerups(p, now);
+      const input = p.pendingInput ?? p.lastInput;
+      if (p.eliminated || !input) continue;
+      const { dx, dy, angle, fire } = input;
       p.angle = angle;
 
-      const len = Math.hypot(dx, dy);
-      if (len > 0.01) {
-        const nx = dx / len;
-        const ny = dy / len;
-        p.x = clamp(p.x + nx * PLAYER.speed * dt, PLAYER.radius, ARENA.width - PLAYER.radius);
-        p.y = clamp(p.y + ny * PLAYER.speed * dt, PLAYER.radius, ARENA.height - PLAYER.radius);
-      }
+      const speed = PLAYER.speed * this.speedMultiplier(p);
+      const next = stepMovement(p.x, p.y, dx, dy, speed, dt);
+      p.x = next.x;
+      p.y = next.y;
 
       if (fire && p.team) {
-        const now = Date.now();
-        if (now - p.lastFireAt >= FIRE_COOLDOWN_MS) {
+        const cooldown = this.fireCooldown(p);
+        if (now - p.lastFireAt >= cooldown) {
           p.lastFireAt = now;
-          this.spawnBullet(p);
+          this.spawnBulletsForPlayer(p);
         }
       }
       p.pendingInput = null;
     }
 
+    this.checkPowerupPickups();
     this.updateBullets(dt);
     this.checkWinCondition();
 
     return this.snapshot();
   }
 
-  private spawnBullet(p: InternalPlayer) {
+  private tickPowerups(now: number) {
+    this.powerups = this.powerups.filter(
+      (pu) => now - pu.spawnedAt < POWERUP.lifetimeMs,
+    );
+
+    if (
+      this.powerups.length < POWERUP.maxOnField &&
+      now - this.lastPowerupSpawnAt >= POWERUP.spawnIntervalMs
+    ) {
+      this.spawnPowerup();
+      this.lastPowerupSpawnAt = now;
+    }
+  }
+
+  private spawnPowerup() {
+    const pad = 80;
+    const kind = ALL_POWERUP_KINDS[Math.floor(Math.random() * ALL_POWERUP_KINDS.length)]!;
+    this.powerups.push({
+      id: randomUUID(),
+      kind,
+      x: pad + Math.random() * (ARENA.width - pad * 2),
+      y: pad + Math.random() * (ARENA.height - pad * 2),
+      spawnedAt: Date.now(),
+    });
+  }
+
+  private checkPowerupPickups() {
+    for (const p of this.players.values()) {
+      if (p.eliminated || !p.team) continue;
+      let picked = -1;
+      for (let i = 0; i < this.powerups.length; i++) {
+        const pu = this.powerups[i]!;
+        const dist = Math.hypot(pu.x - p.x, pu.y - p.y);
+        if (dist < PLAYER.radius + POWERUP.radius) {
+          this.applyPowerup(p, pu.kind);
+          picked = i;
+          break;
+        }
+      }
+      if (picked >= 0) this.powerups.splice(picked, 1);
+    }
+  }
+
+  private applyPowerup(p: InternalPlayer, kind: PowerupKind) {
+    const now = Date.now();
+    if (kind === "shield") {
+      p.shield += POWERUP.shieldCapacity;
+      return;
+    }
+    const existing = p.activePowerups.find((e) => e.kind === kind);
+    if (existing) {
+      existing.until = Math.max(existing.until, now) + POWERUP.effectDurationMs;
+    } else {
+      p.activePowerups.push({ kind, until: now + POWERUP.effectDurationMs });
+    }
+  }
+
+  private clearPowerups(p: InternalPlayer) {
+    p.activePowerups = [];
+    p.shield = 0;
+  }
+
+  private refreshPowerups(p: InternalPlayer, now: number) {
+    p.activePowerups = p.activePowerups.filter((e) => e.until > now);
+  }
+
+  private hasEffect(p: InternalPlayer, kind: PowerupKind, now: number): boolean {
+    return p.activePowerups.some((e) => e.kind === kind && e.until > now);
+  }
+
+  private speedMultiplier(p: InternalPlayer): number {
+    const now = Date.now();
+    if (this.hasEffect(p, "speed", now)) return POWERUP.speedMultiplier;
+    return 1;
+  }
+
+  private fireCooldown(p: InternalPlayer): number {
+    const now = Date.now();
+    if (this.hasEffect(p, "rapid", now)) {
+      return FIRE_COOLDOWN_MS * POWERUP.rapidCooldownMult;
+    }
+    return FIRE_COOLDOWN_MS;
+  }
+
+  private bulletKind(p: InternalPlayer): BulletKind {
+    const now = Date.now();
+    if (this.hasEffect(p, "heavy", now)) return "heavy";
+    if (this.hasEffect(p, "spread", now)) return "spread";
+    return "normal";
+  }
+
+  private spawnBulletsForPlayer(p: InternalPlayer) {
     if (!p.team) return;
+    const mode = this.bulletKind(p);
+    const spread = this.hasEffect(p, "spread", Date.now());
     const muzzleDist = PLAYER.radius + 6;
     const bx = p.x + Math.cos(p.angle) * muzzleDist;
     const by = p.y + Math.sin(p.angle) * muzzleDist;
+
+    if (spread) {
+      for (const offset of [-0.22, 0, 0.22]) {
+        this.pushBullet(p, bx, by, p.angle + offset, mode);
+      }
+      return;
+    }
+
+    this.pushBullet(p, bx, by, p.angle, mode);
+  }
+
+  private pushBullet(
+    p: InternalPlayer,
+    x: number,
+    y: number,
+    angle: number,
+    kind: BulletKind,
+  ) {
+    const heavy = kind === "heavy";
     this.bullets.push({
       id: randomUUID(),
-      x: bx,
-      y: by,
-      vx: Math.cos(p.angle) * BULLET.speed,
-      vy: Math.sin(p.angle) * BULLET.speed,
-      angle: p.angle,
-      team: p.team,
+      x,
+      y,
+      vx: Math.cos(angle) * (heavy ? BULLET.speed * 0.75 : BULLET.speed),
+      vy: Math.sin(angle) * (heavy ? BULLET.speed * 0.75 : BULLET.speed),
+      angle,
+      team: p.team!,
       ownerId: p.id,
       spawnedAt: Date.now(),
+      kind,
+      damage: heavy ? 40 : kind === "spread" ? 18 : BULLET.damage,
+      radius: heavy ? 7 : kind === "spread" ? 3 : BULLET.radius,
     });
+  }
+
+  private applyDamage(p: InternalPlayer, amount: number) {
+    if (p.shield > 0) {
+      const absorbed = Math.min(p.shield, amount);
+      p.shield -= absorbed;
+      amount -= absorbed;
+    }
+    if (amount <= 0) return;
+    p.hp = Math.max(0, p.hp - amount);
+    if (p.hp <= 0) {
+      p.eliminated = true;
+      p.hp = 0;
+      this.clearPowerups(p);
+    }
   }
 
   private updateBullets(dt: number) {
@@ -172,10 +334,10 @@ export class GameSimulation {
       b.y += b.vy * dt;
 
       if (
-        b.x < -BULLET.radius ||
-        b.x > ARENA.width + BULLET.radius ||
-        b.y < -BULLET.radius ||
-        b.y > ARENA.height + BULLET.radius ||
+        b.x < -b.radius ||
+        b.x > ARENA.width + b.radius ||
+        b.y < -b.radius ||
+        b.y > ARENA.height + b.radius ||
         now - b.spawnedAt > BULLET.lifetimeMs
       ) {
         continue;
@@ -185,12 +347,8 @@ export class GameSimulation {
       for (const p of this.players.values()) {
         if (p.eliminated || !p.team || p.team === b.team || p.id === b.ownerId) continue;
         const dist = Math.hypot(b.x - p.x, b.y - p.y);
-        if (dist < PLAYER.radius + BULLET.radius) {
-          p.hp = Math.max(0, p.hp - BULLET.damage);
-          if (p.hp <= 0) {
-            p.eliminated = true;
-            p.hp = 0;
-          }
+        if (dist < PLAYER.radius + b.radius) {
+          this.applyDamage(p, b.damage);
           hit = true;
           break;
         }
@@ -227,6 +385,7 @@ export class GameSimulation {
     p.hp = PLAYER.maxHp;
     p.eliminated = false;
     p.angle = p.team === "red" ? 0 : Math.PI;
+    this.clearPowerups(p);
   }
 
   canStart(): boolean {
@@ -237,6 +396,7 @@ export class GameSimulation {
   }
 
   snapshot(): WorldSnapshot {
+    const now = Date.now();
     const players: PlayerState[] = [...this.players.values()]
       .filter((p) => p.team !== null)
       .map((p) => ({
@@ -250,6 +410,9 @@ export class GameSimulation {
         maxHp: PLAYER.maxHp,
         eliminated: p.eliminated,
         connected: p.connected,
+        activePowerups: p.activePowerups.filter((e) => e.until > now),
+        shield: p.shield,
+        speedMultiplier: this.speedMultiplier(p),
       }));
 
     const bullets: BulletState[] = this.bullets.map((b) => ({
@@ -259,13 +422,22 @@ export class GameSimulation {
       angle: b.angle,
       team: b.team,
       ownerId: b.ownerId,
+      kind: b.kind,
+    }));
+
+    const powerups: PowerupState[] = this.powerups.map((pu) => ({
+      id: pu.id,
+      kind: pu.kind,
+      x: pu.x,
+      y: pu.y,
     }));
 
     return {
       tick: this.tick,
-      timestamp: Date.now(),
+      timestamp: now,
       players,
       bullets,
+      powerups,
     };
   }
 }

@@ -42,6 +42,8 @@ interface InternalPlayer {
 interface Room {
   code: string;
   hostId: string;
+  /** Stable token of the host — survives socket reconnects */
+  hostToken: string;
   phase: GamePhase;
   players: Map<string, InternalPlayer>;
   simulation: GameSimulation;
@@ -65,6 +67,37 @@ function touchRoom(room: Room) {
       destroyRoom(room.code, "Room closed due to inactivity.");
     }
   }, ROOM_IDLE_DESTROY_MS);
+}
+
+function pickNextHost(room: Room, excludeId?: string): string | undefined {
+  for (const [id, p] of room.players) {
+    if (id !== excludeId && !p.disconnectTimer) return id;
+  }
+  for (const [id] of room.players) {
+    if (id !== excludeId) return id;
+  }
+  return undefined;
+}
+
+function transferHost(room: Room, excludeId?: string) {
+  const next = pickNextHost(room, excludeId);
+  if (!next) return;
+  room.hostId = next;
+  room.hostToken = room.players.get(next)!.token;
+}
+
+function removePlayerNow(room: Room, playerId: string) {
+  const p = room.players.get(playerId);
+  if (!p) return;
+  if (p.disconnectTimer) {
+    clearTimeout(p.disconnectTimer);
+    delete p.disconnectTimer;
+  }
+  const wasHost = room.hostId === playerId;
+  room.players.delete(playerId);
+  room.simulation.removePlayer(playerId);
+  socketRoom.delete(playerId);
+  if (wasHost) transferHost(room, playerId);
 }
 
 function lobbyPlayers(room: Room): LobbyPlayer[] {
@@ -165,6 +198,11 @@ function addPlayerToRoom(
   socketRoom.set(socket.id, room.code);
   socket.join(room.code);
   room.simulation.setConnected(socket.id, true);
+
+  if (existing && existing.token === room.hostToken) {
+    room.hostId = socket.id;
+  }
+
   touchRoom(room);
   return player;
 }
@@ -173,19 +211,18 @@ function schedulePlayerDisconnect(room: Room, playerId: string) {
   const p = room.players.get(playerId);
   if (!p || p.disconnectTimer) return;
   room.simulation.setConnected(playerId, false);
+
+  if (room.hostId === playerId) {
+    transferHost(room, playerId);
+  }
+
   p.disconnectTimer = setTimeout(() => {
     const r = getRoom(room.code);
     if (!r) return;
-    r.players.delete(playerId);
-    r.simulation.removePlayer(playerId);
-    socketRoom.delete(playerId);
+    removePlayerNow(r, playerId);
     if (r.players.size === 0) {
       destroyRoom(r.code, "All players left.");
     } else {
-      if (r.hostId === playerId) {
-        const next = r.players.keys().next().value;
-        if (next) r.hostId = next;
-      }
       broadcastRoom(r);
     }
   }, DISCONNECT_GRACE_MS);
@@ -219,13 +256,15 @@ io.on("connection", (socket) => {
     const room: Room = {
       code,
       hostId: socket.id,
+      hostToken: "",
       phase: "lobby",
       players: new Map(),
       simulation: new GameSimulation(),
       lastActivityAt: Date.now(),
     };
     rooms.set(code, room);
-    addPlayerToRoom(room, socket, name);
+    const player = addPlayerToRoom(room, socket, name);
+    room.hostToken = player.token;
     broadcastRoom(room);
   });
 
@@ -332,6 +371,25 @@ io.on("connection", (socket) => {
     const room = getRoom(code);
     if (!room || room.hostId !== socket.id) return;
     destroyRoom(code, "Host closed the room.");
+  });
+
+  socket.on("leaveRoom", () => {
+    const code = socketRoom.get(socket.id);
+    if (!code) return;
+    const room = getRoom(code);
+    if (!room) return;
+
+    removePlayerNow(room, socket.id);
+    socket.leave(room.code);
+
+    if (room.players.size === 0) {
+      destroyRoom(code, "All players left.");
+    } else {
+      touchRoom(room);
+      broadcastRoom(room);
+    }
+
+    socket.emit("leftRoom");
   });
 
   socket.on("input", (payload) => {

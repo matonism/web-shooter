@@ -1,11 +1,70 @@
-import { ARENA, BULLET, PLAYER, TEAM_COLORS } from "@shared/constants";
-import type { RenderBullet, RenderPlayer, RenderState } from "./clientGame";
+import { ARENA, BULLET, PLAYER, POWERUP, TEAM_COLORS } from "@shared/constants";
+import { POWERUP_DEFS } from "@shared/powerups";
+import type { RenderBullet, RenderPlayer, RenderPowerup, RenderState } from "./clientGame";
 
 export function drawGame(ctx: CanvasRenderingContext2D, state: RenderState) {
   ctx.clearRect(0, 0, ARENA.width, ARENA.height);
   drawArena(ctx);
+  for (const pu of state.powerups) drawPowerup(ctx, pu);
   for (const b of state.bullets) drawBullet(ctx, b);
-  for (const p of state.players) drawPlayer(ctx, p);
+  for (const p of state.players) {
+    if (p.isLocal) drawLocalAimLine(ctx, p);
+    drawPlayer(ctx, p);
+  }
+}
+
+function drawPowerup(ctx: CanvasRenderingContext2D, pu: RenderPowerup) {
+  const def = POWERUP_DEFS[pu.kind];
+  const pulse = 0.85 + Math.sin(Date.now() / 200) * 0.15;
+
+  ctx.save();
+  ctx.translate(pu.x, pu.y);
+  ctx.shadowColor = def.glow;
+  ctx.shadowBlur = 16 * pulse;
+  ctx.strokeStyle = def.color;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.arc(0, 0, POWERUP.radius * pulse, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.fillStyle = `${def.color}33`;
+  ctx.fill();
+
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = def.color;
+  ctx.font = "bold 12px Orbitron, sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(def.letter, 0, 1);
+  ctx.restore();
+}
+
+function drawLocalAimLine(ctx: CanvasRenderingContext2D, p: RenderPlayer) {
+  if (p.eliminated) return;
+  const colors = TEAM_COLORS[p.team];
+  const len = 72;
+  const x2 = p.x + Math.cos(p.angle) * len;
+  const y2 = p.y + Math.sin(p.angle) * len;
+
+  ctx.save();
+  ctx.strokeStyle = colors.glow;
+  ctx.lineWidth = 2;
+  ctx.setLineDash([6, 6]);
+  ctx.globalAlpha = 0.75;
+  ctx.beginPath();
+  ctx.moveTo(
+    p.x + Math.cos(p.angle) * (PLAYER.radius + 4),
+    p.y + Math.sin(p.angle) * (PLAYER.radius + 4),
+  );
+  ctx.lineTo(x2, y2);
+  ctx.stroke();
+
+  ctx.setLineDash([]);
+  ctx.globalAlpha = 1;
+  ctx.fillStyle = "#fff";
+  ctx.beginPath();
+  ctx.arc(x2, y2, 4, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
 }
 
 function drawArena(ctx: CanvasRenderingContext2D) {
@@ -51,6 +110,18 @@ function drawPlayer(ctx: CanvasRenderingContext2D, p: RenderPlayer) {
   const colors = TEAM_COLORS[p.team];
   const r = PLAYER.radius;
 
+  if (p.shield > 0) {
+    ctx.save();
+    ctx.strokeStyle = "rgba(68, 255, 204, 0.7)";
+    ctx.lineWidth = 3;
+    ctx.shadowColor = "#44ffcc";
+    ctx.shadowBlur = 12;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, r + 8, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
+
   ctx.save();
   ctx.translate(p.x, p.y);
   ctx.rotate(p.angle);
@@ -94,14 +165,28 @@ function drawPlayer(ctx: CanvasRenderingContext2D, p: RenderPlayer) {
 
 function drawBullet(ctx: CanvasRenderingContext2D, b: RenderBullet) {
   const colors = TEAM_COLORS[b.team];
+  let fill = colors.bullet;
+  let rx = BULLET.radius * 2;
+  let ry = BULLET.radius;
+
+  if (b.kind === "heavy") {
+    fill = "#ffaa44";
+    rx = 10;
+    ry = 6;
+  } else if (b.kind === "spread") {
+    fill = "#cc88ff";
+    rx = 5;
+    ry = 3;
+  }
+
   ctx.save();
   ctx.translate(b.x, b.y);
   ctx.rotate(b.angle);
-  ctx.shadowColor = colors.bullet;
-  ctx.shadowBlur = 8;
-  ctx.fillStyle = colors.bullet;
+  ctx.shadowColor = fill;
+  ctx.shadowBlur = b.kind === "heavy" ? 12 : 8;
+  ctx.fillStyle = fill;
   ctx.beginPath();
-  ctx.ellipse(0, 0, BULLET.radius * 2, BULLET.radius, 0, 0, Math.PI * 2);
+  ctx.ellipse(0, 0, rx, ry, 0, 0, Math.PI * 2);
   ctx.fill();
   ctx.restore();
 }

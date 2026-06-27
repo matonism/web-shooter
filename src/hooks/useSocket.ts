@@ -82,11 +82,17 @@ export function useSocket() {
       setRoomClosed(reason);
     };
 
+    const onLeft = () => {
+      clearRejoin();
+      setRoomState(null);
+    };
+
     s.on("connect", onConnect);
     s.on("disconnect", onDisconnect);
     s.on("state", onState);
     s.on("errorMsg", onError);
     s.on("roomClosed", onClosed);
+    s.on("leftRoom", onLeft);
 
     if (s.connected) onConnect();
 
@@ -96,6 +102,7 @@ export function useSocket() {
       s.off("state", onState);
       s.off("errorMsg", onError);
       s.off("roomClosed", onClosed);
+      s.off("leftRoom", onLeft);
     };
   }, []);
 
@@ -116,6 +123,11 @@ export function useSocket() {
   const startGame = () => getSocket().emit("startGame");
   const backToLobby = () => getSocket().emit("backToLobby");
   const closeRoom = () => getSocket().emit("closeRoom");
+  const leaveRoom = () => {
+    clearRejoin();
+    setRoomState(null);
+    getSocket().emit("leaveRoom");
+  };
   const sendInput = (input: Parameters<ClientToServerEvents["input"]>[0]) => {
     getSocket().emit("input", input);
   };
@@ -131,6 +143,7 @@ export function useSocket() {
     startGame,
     backToLobby,
     closeRoom,
+    leaveRoom,
     sendInput,
   };
 }
