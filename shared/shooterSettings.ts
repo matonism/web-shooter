@@ -48,10 +48,19 @@ export interface ShooterSettingDef {
   unit: string;
 }
 
+export const SHOOTER_BULLET_SPEED = { min: 150, max: 1800, step: 10 } as const;
+
 export const SHOOTER_NUMERIC_SETTINGS: ShooterSettingDef[] = [
   { key: "playerSpeed", label: "Move speed", min: 120, max: 420, step: 10, unit: "px/s" },
   { key: "playerMaxHp", label: "Max health", min: 50, max: 400, step: 10, unit: "HP" },
-  { key: "bulletSpeed", label: "Bullet speed", min: 150, max: 600, step: 10, unit: "px/s" },
+  {
+    key: "bulletSpeed",
+    label: "Bullet speed",
+    min: SHOOTER_BULLET_SPEED.min,
+    max: SHOOTER_BULLET_SPEED.max,
+    step: SHOOTER_BULLET_SPEED.step,
+    unit: "px/s",
+  },
   { key: "bulletRadius", label: "Bullet size", min: 3, max: 12, step: 1, unit: "px" },
   { key: "bulletDamage", label: "Bullet damage", min: 10, max: 80, step: 5, unit: "" },
   { key: "magazineSize", label: "Magazine size", min: 1, max: 60, step: 1, unit: "rds" },
@@ -80,7 +89,7 @@ export function clampShooterSettings(s: ShooterSettings): ShooterSettings {
   return {
     playerSpeed: clamp(s.playerSpeed, 120, 420),
     playerMaxHp: clamp(s.playerMaxHp, 50, 400),
-    bulletSpeed: clamp(s.bulletSpeed, 150, 600),
+    bulletSpeed: clamp(s.bulletSpeed, SHOOTER_BULLET_SPEED.min, SHOOTER_BULLET_SPEED.max),
     bulletRadius: clamp(s.bulletRadius, 3, 12),
     bulletDamage: clamp(s.bulletDamage, 10, 80),
     fireCooldownMs: clamp(s.fireCooldownMs, 200, 2500),
