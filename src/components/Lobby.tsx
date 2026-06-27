@@ -1,18 +1,70 @@
 import { teamSize } from "@shared/constants";
-import type { RoomStatePublic, Team } from "@shared/types";
+import { GAME_CATALOG, getGameDef } from "@shared/games";
+import type { GameId, GamePickMode, RoomStatePublic, Team } from "@shared/types";
 
 interface LobbyProps {
   roomState: RoomStatePublic;
   onSelectTeam: (team: Team) => void;
+  onSelectGame: (gameId: GameId) => void;
+  onSetGamePickMode: (mode: GamePickMode) => void;
+  onVoteGame: (gameId: GameId) => void;
   onStart: () => void;
   onBackToLobby: () => void;
   onCloseRoom: () => void;
   onLeaveRoom: () => void;
 }
 
+function previewGameId(roomState: RoomStatePublic): GameId | null {
+  if (roomState.gamePickMode === "random") return null;
+  if (roomState.gamePickMode === "host") return roomState.selectedGameId;
+
+  const counts = new Map<GameId, number>();
+  for (const vote of Object.values(roomState.gameVotes)) {
+    counts.set(vote, (counts.get(vote) ?? 0) + 1);
+  }
+  if (counts.size === 0) return roomState.selectedGameId;
+
+  let best = roomState.selectedGameId;
+  let bestCount = 0;
+  for (const [id, count] of counts) {
+    if (count > bestCount) {
+      bestCount = count;
+      best = id;
+    }
+  }
+  return best;
+}
+
+function voteCount(roomState: RoomStatePublic, gameId: GameId): number {
+  return Object.values(roomState.gameVotes).filter((v) => v === gameId).length;
+}
+
+function canStart(roomState: RoomStatePublic): boolean {
+  const minPlayers = Math.min(...GAME_CATALOG.map((g) => g.minPlayers));
+  if (roomState.players.length < minPlayers) return false;
+
+  if (roomState.gamePickMode === "random") {
+    return roomState.players.length >= minPlayers;
+  }
+
+  const gameId = previewGameId(roomState) ?? roomState.selectedGameId;
+  const def = getGameDef(gameId);
+  if (roomState.players.length < def.minPlayers) return false;
+
+  if (def.requiresTeams) {
+    const red = teamSize(roomState.players, "red");
+    const blue = teamSize(roomState.players, "blue");
+    return red >= 1 && blue >= 1 && roomState.players.filter((p) => p.team).length >= 2;
+  }
+  return true;
+}
+
 export function Lobby({
   roomState,
   onSelectTeam,
+  onSelectGame,
+  onSetGamePickMode,
+  onVoteGame,
   onStart,
   onBackToLobby,
   onCloseRoom,
@@ -22,19 +74,39 @@ export function Lobby({
   const me = roomState.players.find((p) => p.id === roomState.youId);
   const redCount = teamSize(roomState.players, "red");
   const blueCount = teamSize(roomState.players, "blue");
-  const canStart =
-    roomState.players.filter((p) => p.team).length >= 2 &&
-    redCount >= 1 &&
-    blueCount >= 1;
+  const effectiveGameId = previewGameId(roomState);
+  const effectiveGame = effectiveGameId ? getGameDef(effectiveGameId) : null;
+  const showTeams =
+    roomState.gamePickMode !== "random" && (effectiveGame?.requiresTeams ?? false);
+  const startReady = canStart(roomState);
+  const myVote = roomState.gameVotes[roomState.youId];
 
   if (roomState.phase === "finished") {
-    const winner = roomState.winner;
+    const winner = roomState.matchWinner;
+    const winnerText =
+      winner?.kind === "team"
+        ? `${winner.team.toUpperCase()} TEAM WINS`
+        : winner?.kind === "player"
+          ? `${winner.name.toUpperCase()} WINS`
+          : "DRAW";
+
     return (
       <div className="lobby">
         <div className="lobby-card overlay-card">
           <h2>Match Over</h2>
-          <p className={winner === "red" ? "winner-red" : "winner-blue"}>
-            {winner?.toUpperCase()} TEAM WINS
+          {roomState.playingGameId && (
+            <p className="hint">{getGameDef(roomState.playingGameId).name}</p>
+          )}
+          <p
+            className={
+              winner?.kind === "team"
+                ? winner.team === "red"
+                  ? "winner-red"
+                  : "winner-blue"
+                : "winner-player"
+            }
+          >
+            {winnerText}
           </p>
           {isHost ? (
             <div className="btn-row">
@@ -48,7 +120,12 @@ export function Lobby({
           ) : (
             <>
               <p className="hint">Waiting for host…</p>
-              <button type="button" className="btn btn-secondary" onClick={onLeaveRoom} style={{ marginTop: "0.75rem", width: "100%" }}>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={onLeaveRoom}
+                style={{ marginTop: "0.75rem", width: "100%" }}
+              >
                 Leave Room
               </button>
             </>
@@ -64,6 +141,68 @@ export function Lobby({
         <h2>Room {roomState.code}</h2>
         <p className="room-code">{roomState.code}</p>
 
+        <div className="game-pick-section">
+          <div className="game-pick-header">
+            <h3>Choose a game</h3>
+            {isHost && (
+              <div className="pick-mode-tabs">
+                {(["host", "vote", "random"] as GamePickMode[]).map((mode) => (
+                  <button
+                    key={mode}
+                    type="button"
+                    className={`pick-mode-tab ${roomState.gamePickMode === mode ? "active" : ""}`}
+                    onClick={() => onSetGamePickMode(mode)}
+                  >
+                    {mode === "host" ? "Host picks" : mode === "vote" ? "Vote" : "Random"}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {roomState.gamePickMode === "random" && (
+            <p className="hint">A random game from the suite will be chosen when the host starts.</p>
+          )}
+
+          <div className="game-card-grid">
+            {GAME_CATALOG.map((game) => {
+              const selected =
+                roomState.gamePickMode === "host"
+                  ? roomState.selectedGameId === game.id
+                  : roomState.gamePickMode === "vote"
+                    ? myVote === game.id
+                    : false;
+              const votes = voteCount(roomState, game.id);
+              const leading = effectiveGameId === game.id;
+
+              return (
+                <button
+                  key={game.id}
+                  type="button"
+                  className={`game-card ${selected ? "selected" : ""} ${leading && roomState.gamePickMode === "vote" ? "leading" : ""}`}
+                  disabled={
+                    roomState.gamePickMode === "host"
+                      ? !isHost
+                      : roomState.gamePickMode === "vote"
+                        ? false
+                        : true
+                  }
+                  onClick={() => {
+                    if (roomState.gamePickMode === "host" && isHost) onSelectGame(game.id);
+                    if (roomState.gamePickMode === "vote") onVoteGame(game.id);
+                  }}
+                >
+                  <span className="game-card-name">{game.name}</span>
+                  <span className="game-card-desc">{game.description}</span>
+                  {roomState.gamePickMode === "vote" && votes > 0 && (
+                    <span className="game-card-votes">{votes} vote{votes !== 1 ? "s" : ""}</span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
         <ul className="player-list">
           {roomState.players.map((p) => (
             <li key={p.id}>
@@ -72,43 +211,38 @@ export function Lobby({
                 {p.id === roomState.hostId ? " ★" : ""}
                 {!p.connected ? " (away)" : ""}
               </span>
-              <span
-                className={`team-badge ${p.team ?? "none"}`}
-              >
-                {p.team ?? "—"}
-              </span>
+              {showTeams && (
+                <span className={`team-badge ${p.team ?? "none"}`}>{p.team ?? "—"}</span>
+              )}
             </li>
           ))}
         </ul>
 
-        <div className="team-picker">
-          <button
-            type="button"
-            className={`team-btn red ${me?.team === "red" ? "selected" : ""}`}
-            onClick={() => onSelectTeam("red")}
-            disabled={redCount >= roomState.maxPerTeam && me?.team !== "red"}
-          >
-            Red ({redCount}/{roomState.maxPerTeam})
-          </button>
-          <button
-            type="button"
-            className={`team-btn blue ${me?.team === "blue" ? "selected" : ""}`}
-            onClick={() => onSelectTeam("blue")}
-            disabled={blueCount >= roomState.maxPerTeam && me?.team !== "blue"}
-          >
-            Blue ({blueCount}/{roomState.maxPerTeam})
-          </button>
-        </div>
+        {showTeams && (
+          <div className="team-picker">
+            <button
+              type="button"
+              className={`team-btn red ${me?.team === "red" ? "selected" : ""}`}
+              onClick={() => onSelectTeam("red")}
+              disabled={redCount >= roomState.maxPerTeam && me?.team !== "red"}
+            >
+              Red ({redCount}/{roomState.maxPerTeam})
+            </button>
+            <button
+              type="button"
+              className={`team-btn blue ${me?.team === "blue" ? "selected" : ""}`}
+              onClick={() => onSelectTeam("blue")}
+              disabled={blueCount >= roomState.maxPerTeam && me?.team !== "blue"}
+            >
+              Blue ({blueCount}/{roomState.maxPerTeam})
+            </button>
+          </div>
+        )}
 
         {isHost ? (
           <div className="btn-row">
-            <button
-              type="button"
-              className="btn btn-primary"
-              onClick={onStart}
-              disabled={!canStart}
-            >
-              Start Match
+            <button type="button" className="btn btn-primary" onClick={onStart} disabled={!startReady}>
+              Start Game
             </button>
             <button type="button" className="btn btn-danger" onClick={onCloseRoom}>
               Close Room
@@ -116,15 +250,30 @@ export function Lobby({
           </div>
         ) : (
           <>
-            <p className="hint">Pick a team. Waiting for host to start…</p>
-            <button type="button" className="btn btn-secondary" onClick={onLeaveRoom} style={{ width: "100%", marginTop: "0.75rem" }}>
+            <p className="hint">
+              {roomState.gamePickMode === "vote"
+                ? "Vote for a game. Waiting for host to start…"
+                : "Waiting for host to start…"}
+            </p>
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={onLeaveRoom}
+              style={{ width: "100%", marginTop: "0.75rem" }}
+            >
               Leave Room
             </button>
           </>
         )}
 
-        {!canStart && isHost && (
-          <p className="hint">Need at least 1 player per team to start.</p>
+        {!startReady && isHost && (
+          <p className="hint">
+            {roomState.gamePickMode === "random"
+              ? "Need at least 2 players to start."
+              : showTeams
+                ? "Need at least 1 player per team to start Arena Shooter."
+                : "Need at least 2 players to start."}
+          </p>
         )}
       </div>
     </div>

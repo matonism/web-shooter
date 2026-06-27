@@ -459,6 +459,110 @@ button.btn:disabled {
   color: var(--blue-team);
 }
 
+.overlay-card .winner-player {
+  color: var(--accent);
+}
+
+.game-pick-section {
+  margin: 1.25rem 0;
+  text-align: left;
+}
+
+.game-pick-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.game-pick-header h3 {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.pick-mode-tabs {
+  display: flex;
+  gap: 0.35rem;
+}
+
+.pick-mode-tab {
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--muted);
+  border-radius: 999px;
+  padding: 0.3rem 0.65rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.pick-mode-tab.active {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: rgba(68, 255, 204, 0.08);
+}
+
+.game-card-grid {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.game-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.25rem;
+  text-align: left;
+  width: 100%;
+  padding: 0.85rem 1rem;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.03);
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.game-card:disabled {
+  cursor: default;
+  opacity: 0.85;
+}
+
+.game-card.selected,
+.game-card.leading {
+  border-color: var(--accent);
+  background: rgba(68, 255, 204, 0.08);
+}
+
+.game-card-name {
+  font-weight: 700;
+  color: var(--text);
+}
+
+.game-card-desc {
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+.game-card-votes {
+  font-size: 0.75rem;
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.game-canvas--snake {
+  max-height: min(78vh, 780px);
+}
+
+.hud-snake-status {
+  font-family: var(--font-display);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+}
+
 .connect-overlay {
   position: fixed;
   inset: 0;

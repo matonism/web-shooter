@@ -1,14 +1,18 @@
 import { POWERUP_DEFS } from "@shared/powerups";
 import type { RoomStatePublic } from "@shared/types";
+import { isShooterWorld } from "@shared/types";
 
 interface HudProps {
   roomState: RoomStatePublic;
 }
 
 export function Hud({ roomState }: HudProps) {
-  const me = roomState.world?.players.find((p) => p.id === roomState.youId);
-  const redPlayers = roomState.world?.players.filter((p) => p.team === "red") ?? [];
-  const bluePlayers = roomState.world?.players.filter((p) => p.team === "blue") ?? [];
+  if (!roomState.world || !isShooterWorld(roomState.world)) return null;
+
+  const world = roomState.world;
+  const me = world.players.find((p) => p.id === roomState.youId);
+  const redPlayers = world.players.filter((p) => p.team === "red");
+  const bluePlayers = world.players.filter((p) => p.team === "blue");
   const now = Date.now();
 
   const hasBoost = (p: { activePowerups: { until: number }[]; shield: number }) =>

@@ -1,6 +1,9 @@
 export const TICK_RATE = 30;
 export const TICK_MS = 1000 / TICK_RATE;
 
+/** Render remote entities this far behind the latest snapshot (ms). */
+export const INTERP_DELAY_MS = 100;
+
 export const MAX_PLAYERS = 6;
 export const MAX_PER_TEAM = 3;
 
@@ -16,7 +19,7 @@ export const PLAYER = {
 } as const;
 
 export const BULLET = {
-  radius: 4,
+  radius: 10,
   speed: 250,
   damage: 25,
   lifetimeMs: 2000,

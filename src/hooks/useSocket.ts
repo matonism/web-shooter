@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { io, type Socket } from "socket.io-client";
 import type {
   ClientToServerEvents,
+  GameId,
+  GamePickMode,
   RejoinSession,
   RoomStatePublic,
   ServerToClientEvents,
@@ -120,6 +122,18 @@ export function useSocket() {
     getSocket().emit("selectTeam", { team });
   };
 
+  const selectGame = (gameId: GameId) => {
+    getSocket().emit("selectGame", { gameId });
+  };
+
+  const setGamePickMode = (mode: GamePickMode) => {
+    getSocket().emit("setGamePickMode", { mode });
+  };
+
+  const voteGame = (gameId: GameId) => {
+    getSocket().emit("voteGame", { gameId });
+  };
+
   const startGame = () => getSocket().emit("startGame");
   const backToLobby = () => getSocket().emit("backToLobby");
   const closeRoom = () => getSocket().emit("closeRoom");
@@ -140,6 +154,9 @@ export function useSocket() {
     createRoom,
     joinRoom,
     selectTeam,
+    selectGame,
+    setGamePickMode,
+    voteGame,
     startGame,
     backToLobby,
     closeRoom,

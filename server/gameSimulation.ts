@@ -14,13 +14,16 @@ import { ALL_POWERUP_KINDS } from "../shared/powerups.ts";
 import type {
   BulletKind,
   BulletState,
+  LobbyPlayer,
+  MatchWinner,
   PlayerInput,
   PlayerState,
   PowerupKind,
   PowerupState,
+  ShooterWorldSnapshot,
   Team,
-  WorldSnapshot,
 } from "../shared/types.ts";
+import type { RoomSimulation } from "./roomSimulation.ts";
 
 interface InternalPlayer {
   id: string;
@@ -62,13 +65,19 @@ interface InternalPowerup {
   spawnedAt: number;
 }
 
-export class GameSimulation {
+export class GameSimulation implements RoomSimulation {
+  readonly gameId = "shooter" as const;
   tick = 0;
   players = new Map<string, InternalPlayer>();
   bullets: InternalBullet[] = [];
   powerups: InternalPowerup[] = [];
   winner: Team | null = null;
   private lastPowerupSpawnAt = 0;
+
+  get matchWinner(): MatchWinner | null {
+    if (!this.winner) return null;
+    return { kind: "team", team: this.winner };
+  }
 
   reset() {
     this.tick = 0;
@@ -141,7 +150,7 @@ export class GameSimulation {
     p.lastInput = input;
   }
 
-  step(): WorldSnapshot {
+  step(): void {
     this.tick += 1;
     const now = Date.now();
     const dt = TICK_MS / 1000;
@@ -173,8 +182,6 @@ export class GameSimulation {
     this.checkPowerupPickups();
     this.updateBullets(dt);
     this.checkWinCondition();
-
-    return this.snapshot();
   }
 
   private tickPowerups(now: number) {
@@ -388,14 +395,14 @@ export class GameSimulation {
     this.clearPowerups(p);
   }
 
-  canStart(): boolean {
-    const assigned = [...this.players.values()].filter((p) => p.team);
+  canStart(lobby: LobbyPlayer[]): boolean {
+    const assigned = lobby.filter((p) => p.team);
     if (assigned.length < 2) return false;
     const teams = new Set(assigned.map((p) => p.team));
     return teams.size >= 2;
   }
 
-  snapshot(): WorldSnapshot {
+  snapshot(): ShooterWorldSnapshot {
     const now = Date.now();
     const players: PlayerState[] = [...this.players.values()]
       .filter((p) => p.team !== null)
@@ -435,13 +442,10 @@ export class GameSimulation {
     return {
       tick: this.tick,
       timestamp: now,
+      gameId: "shooter",
       players,
       bullets,
       powerups,
     };
   }
-}
-
-function clamp(v: number, min: number, max: number): number {
-  return Math.max(min, Math.min(max, v));
 }

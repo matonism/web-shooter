@@ -4,16 +4,25 @@ import { createServer } from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Server, type Socket } from "socket.io";
-import { MAX_PLAYERS, MAX_PER_TEAM, TICK_MS } from "../shared/constants.ts";
+import { MAX_PER_TEAM, MAX_PLAYERS, TICK_MS } from "../shared/constants.ts";
+import type { GameId } from "../shared/games.ts";
 import type {
   ClientToServerEvents,
   GamePhase,
+  GamePickMode,
   LobbyPlayer,
   RoomStatePublic,
   ServerToClientEvents,
   Team,
 } from "../shared/types.ts";
-import { GameSimulation } from "./gameSimulation.ts";
+import { createSimulation } from "./createSimulation.ts";
+import {
+  canStartRoom,
+  gameVotesRecord,
+  previewGameId,
+  resolveGameId,
+} from "./gamePick.ts";
+import type { RoomSimulation } from "./roomSimulation.ts";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const isProd = process.env.NODE_ENV === "production";
@@ -42,11 +51,14 @@ interface InternalPlayer {
 interface Room {
   code: string;
   hostId: string;
-  /** Stable token of the host — survives socket reconnects */
   hostToken: string;
   phase: GamePhase;
   players: Map<string, InternalPlayer>;
-  simulation: GameSimulation;
+  selectedGameId: GameId;
+  gamePickMode: GamePickMode;
+  gameVotes: Map<string, GameId>;
+  playingGameId: GameId | null;
+  simulation: RoomSimulation | null;
   gameLoop?: ReturnType<typeof setInterval>;
   lastActivityAt: number;
   idleDestroyTimer?: ReturnType<typeof setTimeout>;
@@ -95,7 +107,8 @@ function removePlayerNow(room: Room, playerId: string) {
   }
   const wasHost = room.hostId === playerId;
   room.players.delete(playerId);
-  room.simulation.removePlayer(playerId);
+  room.gameVotes.delete(playerId);
+  room.simulation?.removePlayer(playerId);
   socketRoom.delete(playerId);
   if (wasHost) transferHost(room, playerId);
 }
@@ -118,12 +131,16 @@ function publicState(room: Room, youId: string): RoomStatePublic {
     players: lobbyPlayers(room),
     maxPlayers: MAX_PLAYERS,
     maxPerTeam: MAX_PER_TEAM,
-    winner: room.simulation.winner,
+    matchWinner: room.simulation?.matchWinner ?? null,
+    selectedGameId: room.selectedGameId,
+    gamePickMode: room.gamePickMode,
+    gameVotes: gameVotesRecord(room.gameVotes),
+    playingGameId: room.playingGameId,
     youId,
     yourToken: you?.token ?? "",
   };
   if (room.phase === "playing" || room.phase === "finished") {
-    state.world = room.simulation.snapshot();
+    state.world = room.simulation?.snapshot();
   }
   return state;
 }
@@ -153,9 +170,9 @@ function destroyRoom(code: string, reason: string) {
 function startGameLoop(room: Room) {
   if (room.gameLoop) clearInterval(room.gameLoop);
   room.gameLoop = setInterval(() => {
-    if (room.phase !== "playing") return;
+    if (room.phase !== "playing" || !room.simulation) return;
     room.simulation.step();
-    if (room.simulation.winner) {
+    if (room.simulation.matchWinner) {
       room.phase = "finished";
       if (room.gameLoop) {
         clearInterval(room.gameLoop);
@@ -164,6 +181,16 @@ function startGameLoop(room: Room) {
     }
     broadcastRoom(room);
   }, TICK_MS);
+}
+
+function bootstrapSimulation(room: Room, gameId: GameId) {
+  room.playingGameId = gameId;
+  room.simulation = createSimulation(gameId);
+  for (const [id, p] of room.players) {
+    room.simulation.addPlayer(id, p.name);
+    if (p.team) room.simulation.assignTeam(id, p.team);
+  }
+  room.simulation.reset();
 }
 
 function addPlayerToRoom(
@@ -182,22 +209,26 @@ function addPlayerToRoom(
   if (existing) {
     const oldId = existing.id;
     room.players.delete(oldId);
+    room.gameVotes.delete(oldId);
     player.id = socket.id;
     if (player.disconnectTimer) {
       clearTimeout(player.disconnectTimer);
       delete player.disconnectTimer;
     }
     if (oldId !== socket.id) {
-      room.simulation.remapPlayerId(oldId, socket.id);
+      room.simulation?.remapPlayerId(oldId, socket.id);
+      const vote = room.gameVotes.get(oldId);
+      if (vote) {
+        room.gameVotes.delete(oldId);
+        room.gameVotes.set(socket.id, vote);
+      }
     }
-  } else {
-    room.simulation.addPlayer(socket.id, player.name);
   }
 
   room.players.set(socket.id, player);
   socketRoom.set(socket.id, room.code);
   socket.join(room.code);
-  room.simulation.setConnected(socket.id, true);
+  room.simulation?.setConnected(socket.id, true);
 
   if (existing && existing.token === room.hostToken) {
     room.hostId = socket.id;
@@ -210,7 +241,7 @@ function addPlayerToRoom(
 function schedulePlayerDisconnect(room: Room, playerId: string) {
   const p = room.players.get(playerId);
   if (!p || p.disconnectTimer) return;
-  room.simulation.setConnected(playerId, false);
+  room.simulation?.setConnected(playerId, false);
 
   if (room.hostId === playerId) {
     transferHost(room, playerId);
@@ -259,7 +290,11 @@ io.on("connection", (socket) => {
       hostToken: "",
       phase: "lobby",
       players: new Map(),
-      simulation: new GameSimulation(),
+      selectedGameId: "shooter",
+      gamePickMode: "host",
+      gameVotes: new Map(),
+      playingGameId: null,
+      simulation: null,
       lastActivityAt: Date.now(),
     };
     rooms.set(code, room);
@@ -314,11 +349,53 @@ io.on("connection", (socket) => {
     if (!room || room.phase !== "lobby") return;
     const p = room.players.get(socket.id);
     if (!p) return;
-    if (!room.simulation.assignTeam(socket.id, team)) {
+
+    const preview = previewGameId(room) ?? room.selectedGameId;
+    if (preview === "snake") {
+      socket.emit("errorMsg", "Team pick is only for Arena Shooter.");
+      return;
+    }
+
+    const onOtherTeam = [...room.players.values()].filter(
+      (pl) => pl.team === team && pl.id !== socket.id,
+    ).length;
+    if (onOtherTeam >= MAX_PER_TEAM) {
       socket.emit("errorMsg", `${team} team is full.`);
       return;
     }
     p.team = team;
+    touchRoom(room);
+    broadcastRoom(room);
+  });
+
+  socket.on("selectGame", ({ gameId }) => {
+    const code = socketRoom.get(socket.id);
+    if (!code) return;
+    const room = getRoom(code);
+    if (!room || room.hostId !== socket.id || room.phase !== "lobby") return;
+    if (room.gamePickMode !== "host") return;
+    room.selectedGameId = gameId;
+    touchRoom(room);
+    broadcastRoom(room);
+  });
+
+  socket.on("setGamePickMode", ({ mode }) => {
+    const code = socketRoom.get(socket.id);
+    if (!code) return;
+    const room = getRoom(code);
+    if (!room || room.hostId !== socket.id || room.phase !== "lobby") return;
+    room.gamePickMode = mode;
+    touchRoom(room);
+    broadcastRoom(room);
+  });
+
+  socket.on("voteGame", ({ gameId }) => {
+    const code = socketRoom.get(socket.id);
+    if (!code) return;
+    const room = getRoom(code);
+    if (!room || room.phase !== "lobby") return;
+    if (room.gamePickMode !== "vote") return;
+    room.gameVotes.set(socket.id, gameId);
     touchRoom(room);
     broadcastRoom(room);
   });
@@ -329,15 +406,22 @@ io.on("connection", (socket) => {
     const room = getRoom(code);
     if (!room || room.hostId !== socket.id) return;
     if (room.phase !== "lobby") return;
-    if (!room.simulation.canStart()) {
-      socket.emit("errorMsg", "Need at least 2 players on different teams.");
+
+    const lobby = lobbyPlayers(room);
+    if (!canStartRoom(room, lobby)) {
+      socket.emit("errorMsg", "Not enough players (or teams) to start.");
       return;
     }
-    room.phase = "playing";
-    room.simulation.reset();
-    for (const [id, p] of room.players) {
-      if (p.team) room.simulation.assignTeam(id, p.team);
+
+    const gameId = resolveGameId(room);
+    const sim = createSimulation(gameId);
+    if (!sim.canStart(lobby)) {
+      socket.emit("errorMsg", "Not enough players (or teams) to start.");
+      return;
     }
+
+    room.phase = "playing";
+    bootstrapSimulation(room, gameId);
     startGameLoop(room);
     touchRoom(room);
     broadcastRoom(room);
@@ -353,14 +437,8 @@ io.on("connection", (socket) => {
       room.gameLoop = undefined;
     }
     room.phase = "lobby";
-    room.simulation = new GameSimulation();
-    for (const [id, p] of room.players) {
-      room.simulation.addPlayer(id, p.name);
-      if (p.team) {
-        room.simulation.assignTeam(id, p.team);
-        p.team = p.team;
-      }
-    }
+    room.playingGameId = null;
+    room.simulation = null;
     touchRoom(room);
     broadcastRoom(room);
   });
@@ -396,7 +474,7 @@ io.on("connection", (socket) => {
     const code = socketRoom.get(socket.id);
     if (!code) return;
     const room = getRoom(code);
-    if (!room || room.phase !== "playing") return;
+    if (!room || room.phase !== "playing" || !room.simulation) return;
     room.simulation.queueInput(socket.id, payload);
     touchRoom(room);
   });

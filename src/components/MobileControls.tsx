@@ -1,14 +1,20 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { ClientGame } from "../game/clientGame";
 
 const STICK_RADIUS = 52;
 
-interface MobileControlsProps {
-  game: ClientGame;
-  disabled?: boolean;
+export interface TouchMoveGame {
+  enableTouchControls(enabled: boolean): void;
+  setTouchMove(moveX: number, moveY: number): void;
+  setTouchControls?(partial: { firing?: boolean }): void;
 }
 
-export function MobileControls({ game, disabled }: MobileControlsProps) {
+interface MobileControlsProps {
+  game: TouchMoveGame;
+  disabled?: boolean;
+  showTapHint?: boolean;
+}
+
+export function MobileControls({ game, disabled, showTapHint = true }: MobileControlsProps) {
   const moveRef = useRef<HTMLDivElement>(null);
   const moveTouchId = useRef<number | null>(null);
   const [knob, setKnob] = useState({ x: 0, y: 0 });
@@ -31,7 +37,7 @@ export function MobileControls({ game, disabled }: MobileControlsProps) {
     return () => {
       game.enableTouchControls(false);
       game.setTouchMove(0, 0);
-      game.setTouchControls({ firing: false });
+      game.setTouchControls?.({ firing: false });
     };
   }, [game]);
 
@@ -104,7 +110,9 @@ export function MobileControls({ game, disabled }: MobileControlsProps) {
         />
         <span className="mobile-stick-label">MOVE</span>
       </div>
-      <p className="mobile-tap-hint">Tap arena to aim &amp; shoot</p>
+      {showTapHint && (
+        <p className="mobile-tap-hint">Tap arena to aim &amp; shoot</p>
+      )}
     </div>
   );
 }

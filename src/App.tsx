@@ -1,7 +1,9 @@
 import { useState } from "react";
 import { Lobby } from "./components/Lobby";
 import { Hud } from "./components/Hud";
+import { SnakeHud } from "./components/SnakeHud";
 import { GameCanvas } from "./game/GameCanvas";
+import { SnakeCanvas } from "./game/SnakeCanvas";
 import { useSocket } from "./hooks/useSocket";
 import { isTouchDevice } from "./utils/touchDevice";
 
@@ -14,6 +16,9 @@ export default function App() {
     createRoom,
     joinRoom,
     selectTeam,
+    selectGame,
+    setGamePickMode,
+    voteGame,
     startGame,
     backToLobby,
     closeRoom,
@@ -27,6 +32,7 @@ export default function App() {
   const [joinCode, setJoinCode] = useState("");
 
   const inGame = roomState?.phase === "playing";
+  const activeGame = roomState?.playingGameId ?? roomState?.world?.gameId ?? "shooter";
 
   const handleCreate = () => {
     const trimmed = createName.trim();
@@ -115,8 +121,8 @@ export default function App() {
           </div>
 
           <p className="hint">
-            WASD move · Mouse aim · Click to fire · Up to 6 players
-            {isTouchDevice() && " · Mobile: left stick or WASD to move, tap arena to aim & shoot"}
+            Create a room, pick a game, and play with up to 6 friends
+            {isTouchDevice() && " · Mobile: left stick or WASD to move"}
           </p>
         </div>
       )}
@@ -175,6 +181,9 @@ export default function App() {
         <Lobby
           roomState={roomState}
           onSelectTeam={selectTeam}
+          onSelectGame={selectGame}
+          onSetGamePickMode={setGamePickMode}
+          onVoteGame={voteGame}
           onStart={startGame}
           onBackToLobby={backToLobby}
           onCloseRoom={closeRoom}
@@ -185,8 +194,17 @@ export default function App() {
       {roomState && inGame && (
         <div className="game-shell">
           <div className="game-canvas-wrap">
-            <GameCanvas roomState={roomState} onInput={sendInput} />
-            <Hud roomState={roomState} />
+            {activeGame === "snake" ? (
+              <>
+                <SnakeCanvas roomState={roomState} onInput={sendInput} />
+                <SnakeHud roomState={roomState} />
+              </>
+            ) : (
+              <>
+                <GameCanvas roomState={roomState} onInput={sendInput} />
+                <Hud roomState={roomState} />
+              </>
+            )}
           </div>
         </div>
       )}
