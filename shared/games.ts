@@ -9,6 +9,7 @@ export interface GameDef {
   minPlayers: number;
   maxPlayers: number;
   requiresTeams: boolean;
+  supportsSolo: boolean;
 }
 
 export const GAME_CATALOG: GameDef[] = [
@@ -16,17 +17,19 @@ export const GAME_CATALOG: GameDef[] = [
     id: "shooter",
     name: "Arena Shooter",
     description: "3v3 top-down blaster with powerups.",
-    minPlayers: 2,
-    maxPlayers: 6,
-    requiresTeams: true,
+  minPlayers: 1,
+  maxPlayers: 6,
+  requiresTeams: true,
+  supportsSolo: true,
   },
   {
     id: "snake",
     name: "Multiplayer Snake",
     description: "Grow your snake — last one slithering wins.",
-    minPlayers: 2,
-    maxPlayers: 6,
-    requiresTeams: false,
+  minPlayers: 1,
+  maxPlayers: 6,
+  requiresTeams: false,
+  supportsSolo: true,
   },
 ];
 

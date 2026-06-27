@@ -126,6 +126,8 @@ export interface RoomStatePublic {
   gamePickMode: GamePickMode;
   /** Player id → voted game (vote mode) */
   gameVotes: Record<string, GameId>;
+  /** Practice vs AI — host can start alone */
+  soloMode: boolean;
   /** Set while playing or after finish */
   playingGameId: GameId | null;
   /** Present when phase is playing or finished */
@@ -166,6 +168,10 @@ export interface VoteGamePayload {
   gameId: GameId;
 }
 
+export interface SetSoloModePayload {
+  enabled: boolean;
+}
+
 export interface ClientToServerEvents {
   createRoom: (payload: CreateRoomPayload) => void;
   joinRoom: (payload: JoinRoomPayload) => void;
@@ -174,6 +180,7 @@ export interface ClientToServerEvents {
   selectGame: (payload: SelectGamePayload) => void;
   setGamePickMode: (payload: SetGamePickModePayload) => void;
   voteGame: (payload: VoteGamePayload) => void;
+  setSoloMode: (payload: SetSoloModePayload) => void;
   startGame: () => void;
   backToLobby: () => void;
   closeRoom: () => void;

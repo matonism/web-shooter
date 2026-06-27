@@ -7,6 +7,7 @@ export interface GamePickState {
   selectedGameId: GameId;
   gamePickMode: GamePickMode;
   gameVotes: Map<string, GameId>;
+  soloMode: boolean;
 }
 
 export function resolveGameId(state: GamePickState): GameId {
@@ -34,7 +35,6 @@ export function resolveGameId(state: GamePickState): GameId {
   return tied[Math.floor(Math.random() * tied.length)]!;
 }
 
-/** Game shown in lobby before start (random shows default until roll). */
 export function previewGameId(state: GamePickState): GameId | null {
   if (state.gamePickMode === "host") return state.selectedGameId;
   if (state.gamePickMode === "random") return null;
@@ -57,7 +57,24 @@ export function previewGameId(state: GamePickState): GameId | null {
 }
 
 export function canStartRoom(state: GamePickState, lobby: LobbyPlayer[]): boolean {
-  const minPlayers = Math.min(...GAME_CATALOG.map((g) => g.minPlayers));
+  if (lobby.length === 0) return false;
+
+  if (state.soloMode) {
+    if (lobby.length !== 1) return false;
+    const gameId =
+      state.gamePickMode === "random"
+        ? null
+        : (previewGameId(state) ?? state.selectedGameId);
+    if (!gameId) return true;
+    const def = getGameDef(gameId);
+    if (!def.supportsSolo) return false;
+    if (def.requiresTeams) {
+      return lobby[0]!.team !== null;
+    }
+    return true;
+  }
+
+  const minPlayers = 2;
   if (lobby.length < minPlayers) return false;
 
   if (state.gamePickMode === "random") {
@@ -66,14 +83,14 @@ export function canStartRoom(state: GamePickState, lobby: LobbyPlayer[]): boolea
 
   const gameId = previewGameId(state) ?? state.selectedGameId;
   const def = getGameDef(gameId);
-  if (lobby.length < def.minPlayers) return false;
+  if (lobby.length < def.minPlayers && lobby.length < minPlayers) return false;
 
   if (def.requiresTeams) {
     const red = teamSize(lobby, "red");
     const blue = teamSize(lobby, "blue");
     return red >= 1 && blue >= 1 && lobby.filter((p) => p.team).length >= 2;
   }
-  return true;
+  return lobby.length >= 2;
 }
 
 export function gameVotesRecord(votes: Map<string, GameId>): Record<string, GameId> {

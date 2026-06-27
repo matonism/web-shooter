@@ -134,6 +134,10 @@ export function useSocket() {
     getSocket().emit("voteGame", { gameId });
   };
 
+  const setSoloMode = (enabled: boolean) => {
+    getSocket().emit("setSoloMode", { enabled });
+  };
+
   const startGame = () => getSocket().emit("startGame");
   const backToLobby = () => getSocket().emit("backToLobby");
   const closeRoom = () => getSocket().emit("closeRoom");
@@ -157,6 +161,7 @@ export function useSocket() {
     selectGame,
     setGamePickMode,
     voteGame,
+    setSoloMode,
     startGame,
     backToLobby,
     closeRoom,

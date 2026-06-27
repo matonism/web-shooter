@@ -22,6 +22,7 @@ import {
   previewGameId,
   resolveGameId,
 } from "./gamePick.ts";
+import { addSoloBots } from "./soloBots.ts";
 import type { RoomSimulation } from "./roomSimulation.ts";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -57,6 +58,7 @@ interface Room {
   selectedGameId: GameId;
   gamePickMode: GamePickMode;
   gameVotes: Map<string, GameId>;
+  soloMode: boolean;
   playingGameId: GameId | null;
   simulation: RoomSimulation | null;
   gameLoop?: ReturnType<typeof setInterval>;
@@ -135,6 +137,7 @@ function publicState(room: Room, youId: string): RoomStatePublic {
     selectedGameId: room.selectedGameId,
     gamePickMode: room.gamePickMode,
     gameVotes: gameVotesRecord(room.gameVotes),
+    soloMode: room.soloMode,
     playingGameId: room.playingGameId,
     youId,
     yourToken: you?.token ?? "",
@@ -189,6 +192,13 @@ function bootstrapSimulation(room: Room, gameId: GameId) {
   for (const [id, p] of room.players) {
     room.simulation.addPlayer(id, p.name);
     if (p.team) room.simulation.assignTeam(id, p.team);
+  }
+  if (room.soloMode) {
+    addSoloBots(
+      room.simulation,
+      gameId,
+      [...room.players.values()].map((p) => ({ team: p.team })),
+    );
   }
   room.simulation.reset();
 }
@@ -293,6 +303,7 @@ io.on("connection", (socket) => {
       selectedGameId: "shooter",
       gamePickMode: "host",
       gameVotes: new Map(),
+      soloMode: false,
       playingGameId: null,
       simulation: null,
       lastActivityAt: Date.now(),
@@ -313,11 +324,16 @@ io.on("connection", (socket) => {
       socket.emit("errorMsg", "Game already in progress.");
       return;
     }
+    if (room.soloMode) {
+      socket.emit("errorMsg", "Solo practice room — cannot join.");
+      return;
+    }
     if (room.players.size >= MAX_PLAYERS) {
       socket.emit("errorMsg", "Room is full (6 players max).");
       return;
     }
     addPlayerToRoom(room, socket, name);
+    if (room.players.size > 1) room.soloMode = false;
     broadcastRoom(room);
   });
 
@@ -400,6 +416,20 @@ io.on("connection", (socket) => {
     broadcastRoom(room);
   });
 
+  socket.on("setSoloMode", ({ enabled }) => {
+    const code = socketRoom.get(socket.id);
+    if (!code) return;
+    const room = getRoom(code);
+    if (!room || room.hostId !== socket.id || room.phase !== "lobby") return;
+    if (enabled && room.players.size > 1) {
+      socket.emit("errorMsg", "Solo mode is only available when you are alone in the room.");
+      return;
+    }
+    room.soloMode = enabled;
+    touchRoom(room);
+    broadcastRoom(room);
+  });
+
   socket.on("startGame", () => {
     const code = socketRoom.get(socket.id);
     if (!code) return;
@@ -414,10 +444,24 @@ io.on("connection", (socket) => {
     }
 
     const gameId = resolveGameId(room);
-    const sim = createSimulation(gameId);
-    if (!sim.canStart(lobby)) {
-      socket.emit("errorMsg", "Not enough players (or teams) to start.");
-      return;
+
+    if (room.soloMode && gameId === "shooter") {
+      const host = room.players.get(room.hostId);
+      if (host && !host.team) host.team = "red";
+    }
+
+    if (!room.soloMode) {
+      const sim = createSimulation(gameId);
+      if (!sim.canStart(lobby)) {
+        socket.emit("errorMsg", "Not enough players (or teams) to start.");
+        return;
+      }
+    } else if (gameId === "shooter") {
+      const host = room.players.get(room.hostId);
+      if (host && !host.team) {
+        socket.emit("errorMsg", "Pick a team before starting solo Arena Shooter.");
+        return;
+      }
     }
 
     room.phase = "playing";
@@ -439,6 +483,7 @@ io.on("connection", (socket) => {
     room.phase = "lobby";
     room.playingGameId = null;
     room.simulation = null;
+    room.soloMode = false;
     touchRoom(room);
     broadcastRoom(room);
   });

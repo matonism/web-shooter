@@ -11,6 +11,7 @@ import type {
   SnakeWorldSnapshot,
 } from "../shared/types.ts";
 import type { RoomSimulation } from "./roomSimulation.ts";
+import { directionToInput, pickSnakeBotDirection } from "./snakeAi.ts";
 
 type Direction = SnakeSpawnSlot["direction"];
 
@@ -23,6 +24,7 @@ interface InternalSnake {
   alive: boolean;
   score: number;
   color: string;
+  isBot: boolean;
   pendingInput: PlayerInput | null;
   lastInput: PlayerInput | null;
 }
@@ -64,7 +66,7 @@ export class SnakeSimulation implements RoomSimulation {
     }
   }
 
-  addPlayer(id: string, name: string) {
+  addPlayer(id: string, name: string, isBot = false) {
     const color = SNAKE.colors[this.snakes.size % SNAKE.colors.length]!;
     this.snakes.set(id, {
       id,
@@ -75,6 +77,7 @@ export class SnakeSimulation implements RoomSimulation {
       alive: true,
       score: 0,
       color,
+      isBot,
       pendingInput: null,
       lastInput: null,
     });
@@ -115,6 +118,16 @@ export class SnakeSimulation implements RoomSimulation {
 
     for (const snake of this.snakes.values()) {
       if (!snake.alive) continue;
+      if (snake.isBot) {
+        const dir = pickSnakeBotDirection(
+          snake,
+          [...this.snakes.values()],
+          this.pellets.map((p) => ({ x: p.x, y: p.y })),
+        );
+        const { dx, dy } = directionToInput(dir);
+        snake.pendingInput = { seq: 0, dx, dy, angle: 0, fire: false };
+        snake.lastInput = snake.pendingInput;
+      }
       const input = snake.pendingInput ?? snake.lastInput;
       if (input) this.applyDirectionInput(snake, input);
       snake.pendingInput = null;
@@ -137,7 +150,7 @@ export class SnakeSimulation implements RoomSimulation {
   }
 
   canStart(lobby: LobbyPlayer[]): boolean {
-    return lobby.length >= 2;
+    return lobby.length >= 1;
   }
 
   snapshot(): SnakeWorldSnapshot {

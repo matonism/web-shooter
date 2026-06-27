@@ -8,6 +8,7 @@ interface LobbyProps {
   onSelectGame: (gameId: GameId) => void;
   onSetGamePickMode: (mode: GamePickMode) => void;
   onVoteGame: (gameId: GameId) => void;
+  onSetSoloMode: (enabled: boolean) => void;
   onStart: () => void;
   onBackToLobby: () => void;
   onCloseRoom: () => void;
@@ -40,23 +41,37 @@ function voteCount(roomState: RoomStatePublic, gameId: GameId): number {
 }
 
 function canStart(roomState: RoomStatePublic): boolean {
-  const minPlayers = Math.min(...GAME_CATALOG.map((g) => g.minPlayers));
-  if (roomState.players.length < minPlayers) return false;
+  if (roomState.players.length === 0) return false;
+
+  if (roomState.soloMode) {
+    if (roomState.players.length !== 1) return false;
+    const gameId =
+      roomState.gamePickMode === "random"
+        ? null
+        : (previewGameId(roomState) ?? roomState.selectedGameId);
+    if (!gameId) return true;
+    const def = getGameDef(gameId);
+    if (!def.supportsSolo) return false;
+    if (def.requiresTeams) {
+      return roomState.players[0]!.team !== null;
+    }
+    return true;
+  }
+
+  if (roomState.players.length < 2) return false;
 
   if (roomState.gamePickMode === "random") {
-    return roomState.players.length >= minPlayers;
+    return roomState.players.length >= 2;
   }
 
   const gameId = previewGameId(roomState) ?? roomState.selectedGameId;
   const def = getGameDef(gameId);
-  if (roomState.players.length < def.minPlayers) return false;
-
   if (def.requiresTeams) {
     const red = teamSize(roomState.players, "red");
     const blue = teamSize(roomState.players, "blue");
     return red >= 1 && blue >= 1 && roomState.players.filter((p) => p.team).length >= 2;
   }
-  return true;
+  return roomState.players.length >= 2;
 }
 
 export function Lobby({
@@ -65,6 +80,7 @@ export function Lobby({
   onSelectGame,
   onSetGamePickMode,
   onVoteGame,
+  onSetSoloMode,
   onStart,
   onBackToLobby,
   onCloseRoom,
@@ -77,7 +93,13 @@ export function Lobby({
   const effectiveGameId = previewGameId(roomState);
   const effectiveGame = effectiveGameId ? getGameDef(effectiveGameId) : null;
   const showTeams =
-    roomState.gamePickMode !== "random" && (effectiveGame?.requiresTeams ?? false);
+    !roomState.soloMode &&
+    roomState.gamePickMode !== "random" &&
+    (effectiveGame?.requiresTeams ?? false);
+  const showTeamsSolo =
+    roomState.soloMode &&
+    roomState.gamePickMode !== "random" &&
+    (effectiveGame?.requiresTeams ?? effectiveGameId === null);
   const startReady = canStart(roomState);
   const myVote = roomState.gameVotes[roomState.youId];
 
@@ -203,6 +225,23 @@ export function Lobby({
           </div>
         </div>
 
+        {isHost && roomState.players.length === 1 && (
+          <label className="solo-toggle">
+            <input
+              type="checkbox"
+              checked={roomState.soloMode}
+              onChange={(e) => onSetSoloMode(e.target.checked)}
+            />
+            <span>Practice vs AI (solo)</span>
+          </label>
+        )}
+
+        {roomState.soloMode && (
+          <p className="hint">
+            Solo mode — AI opponents fill in when you start. Friends cannot join this room.
+          </p>
+        )}
+
         <ul className="player-list">
           {roomState.players.map((p) => (
             <li key={p.id}>
@@ -211,14 +250,14 @@ export function Lobby({
                 {p.id === roomState.hostId ? " ★" : ""}
                 {!p.connected ? " (away)" : ""}
               </span>
-              {showTeams && (
+              {(showTeams || showTeamsSolo) && (
                 <span className={`team-badge ${p.team ?? "none"}`}>{p.team ?? "—"}</span>
               )}
             </li>
           ))}
         </ul>
 
-        {showTeams && (
+        {(showTeams || showTeamsSolo) && (
           <div className="team-picker">
             <button
               type="button"
@@ -268,11 +307,15 @@ export function Lobby({
 
         {!startReady && isHost && (
           <p className="hint">
-            {roomState.gamePickMode === "random"
-              ? "Need at least 2 players to start."
-              : showTeams
-                ? "Need at least 1 player per team to start Arena Shooter."
-                : "Need at least 2 players to start."}
+            {roomState.soloMode
+              ? showTeamsSolo && !me?.team
+                ? "Pick your team, then start solo Arena Shooter."
+                : "Ready when you are — AI opponents will join on start."
+              : roomState.gamePickMode === "random"
+                ? "Need at least 2 players to start."
+                : showTeams
+                  ? "Need at least 1 player per team to start Arena Shooter."
+                  : "Need at least 2 players to start."}
           </p>
         )}
       </div>

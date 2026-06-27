@@ -24,6 +24,7 @@ import type {
   Team,
 } from "../shared/types.ts";
 import type { RoomSimulation } from "./roomSimulation.ts";
+import { computeShooterBotInput } from "./shooterAi.ts";
 
 interface InternalPlayer {
   id: string;
@@ -35,6 +36,7 @@ interface InternalPlayer {
   hp: number;
   eliminated: boolean;
   connected: boolean;
+  isBot: boolean;
   lastFireAt: number;
   pendingInput: PlayerInput | null;
   lastInput: PlayerInput | null;
@@ -91,7 +93,7 @@ export class GameSimulation implements RoomSimulation {
     }
   }
 
-  addPlayer(id: string, name: string) {
+  addPlayer(id: string, name: string, isBot = false) {
     this.players.set(id, {
       id,
       name,
@@ -102,6 +104,7 @@ export class GameSimulation implements RoomSimulation {
       hp: PLAYER.maxHp,
       eliminated: false,
       connected: true,
+      isBot,
       lastFireAt: 0,
       pendingInput: null,
       lastInput: null,
@@ -156,6 +159,14 @@ export class GameSimulation implements RoomSimulation {
     const dt = TICK_MS / 1000;
 
     this.tickPowerups(now);
+
+    for (const p of this.players.values()) {
+      if (p.isBot && !p.eliminated && p.team) {
+        const input = this.computeBotInput(p);
+        p.pendingInput = input;
+        p.lastInput = input;
+      }
+    }
 
     for (const p of this.players.values()) {
       this.refreshPowerups(p, now);
@@ -396,10 +407,41 @@ export class GameSimulation implements RoomSimulation {
   }
 
   canStart(lobby: LobbyPlayer[]): boolean {
+    if (lobby.length === 1) return true;
     const assigned = lobby.filter((p) => p.team);
     if (assigned.length < 2) return false;
     const teams = new Set(assigned.map((p) => p.team));
     return teams.size >= 2;
+  }
+
+  private computeBotInput(p: InternalPlayer): PlayerInput {
+    const enemies = [...this.players.values()]
+      .filter((o) => o.team && o.team !== p.team && !o.eliminated)
+      .map((o) => ({
+        id: o.id,
+        team: o.team!,
+        x: o.x,
+        y: o.y,
+        angle: o.angle,
+        eliminated: o.eliminated,
+      }));
+
+    return computeShooterBotInput({
+      self: {
+        id: p.id,
+        team: p.team!,
+        x: p.x,
+        y: p.y,
+        angle: p.angle,
+        eliminated: p.eliminated,
+      },
+      enemies,
+      powerups: this.powerups.map((pu) => ({
+        x: pu.x,
+        y: pu.y,
+        kind: pu.kind,
+      })),
+    });
   }
 
   snapshot(): ShooterWorldSnapshot {

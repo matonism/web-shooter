@@ -19,8 +19,8 @@ export const PLAYER = {
 } as const;
 
 export const BULLET = {
-  radius: 10,
-  speed: 250,
+  radius: 6,
+  speed: 300,
   damage: 25,
   lifetimeMs: 2000,
 } as const;

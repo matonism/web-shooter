@@ -19,6 +19,7 @@ export default function App() {
     selectGame,
     setGamePickMode,
     voteGame,
+    setSoloMode,
     startGame,
     backToLobby,
     closeRoom,
@@ -121,7 +122,7 @@ export default function App() {
           </div>
 
           <p className="hint">
-            Create a room, pick a game, and play with up to 6 friends
+            Create a room, pick a game, and play with up to 6 friends — or enable Practice vs AI when alone
             {isTouchDevice() && " · Mobile: left stick or WASD to move"}
           </p>
         </div>
@@ -184,6 +185,7 @@ export default function App() {
           onSelectGame={selectGame}
           onSetGamePickMode={setGamePickMode}
           onVoteGame={voteGame}
+          onSetSoloMode={setSoloMode}
           onStart={startGame}
           onBackToLobby={backToLobby}
           onCloseRoom={closeRoom}
