@@ -72,7 +72,8 @@ Open `http://localhost:5173` in the browser. Use multiple tabs or windows to tes
 2. Pick **Red** or **Blue** (up to 3 players per team, 6 total).
 3. The host clicks **Start Match** once at least one player is on each team.
 4. **WASD** — move · **Mouse** — aim · **Click** — fire
-5. Last team standing wins. Eliminated players stay on the board but cannot act.
+5. On **mobile/touch**: left stick to move · drag the right side to aim · hold to shoot
+6. Last team standing wins. Eliminated players stay on the board but cannot act.
 
 ### Game rules (defaults)
 
@@ -93,21 +94,87 @@ Open `http://localhost:5173` in the browser. Use multiple tabs or windows to tes
 
 Socket events and state shapes live in `shared/types.ts`.
 
-## Deployment
+## Deployment (Render)
 
-Deploy to Render using the included Blueprint (same pattern as [trivia-king](https://trivia-king.onrender.com/)):
+This repo is set up for [Render](https://render.com) — same pattern as [trivia-king](https://trivia-king.onrender.com/). The GitHub repo is [`matonism/web-shooter`](https://github.com/matonism/web-shooter); the default branch is **`master`** (not `main`).
 
-1. Push the repo to GitHub.
-2. In the Render dashboard: **New → Blueprint** and select this repo (or paste `render.yaml`).
-3. Render runs `npm ci --include=dev && npm run build`, then `npm start`.
+### First-time setup (Blueprint — recommended)
 
-The web service serves the built client and Socket.io from a single Node process. Render sets `PORT` automatically; `NODE_ENV=production` is configured in `render.yaml`.
+1. **Push the repo to GitHub** (if you have not already):
+
+   ```bash
+   git remote add origin https://github.com/YOUR_USER/web-shooter.git
+   git push -u origin master
+   ```
+
+2. Open the [Render dashboard](https://dashboard.render.com/) and sign in with GitHub.
+
+3. Click **New → Blueprint**.
+
+4. Connect GitHub and select the **`web-shooter`** repository (or paste the repo URL).
+
+5. Render reads `render.yaml` at the repo root and proposes a web service named **`shooter-snipes`**.
+
+6. Click **Apply** / **Create** and wait for the first deploy to finish (usually a few minutes).
+
+7. When the deploy succeeds, open the service URL (e.g. `https://shooter-snipes.onrender.com`). You can rename the service in Render settings to change the subdomain.
+
+**What Render runs:**
+
+| Step | Command |
+|------|---------|
+| Build | `npm ci --include=dev && npm run build` |
+| Start | `npm start` |
+
+`npm ci --include=dev` is required because **Vite** is a devDependency and must be installed even when `NODE_ENV=production` during the build.
+
+The web service serves the built client from `dist/` and Socket.io from a **single Node process** on the port Render assigns via `PORT`.
+
+### First-time setup (manual Web Service)
+
+If you prefer not to use the Blueprint:
+
+1. **New → Web Service** → connect `matonism/web-shooter`.
+2. Set **Branch** to **`master`**.
+3. **Runtime:** Node  
+4. **Build command:** `npm ci --include=dev && npm run build`  
+5. **Start command:** `npm start`  
+6. **Health check path:** `/`  
+7. Add env var: `NODE_ENV` = `production`  
+8. Create the service.
+
+### After the service exists — auto-deploy on push
+
+Each `git push` to the branch Render watches should trigger a new deploy. Check these if a push does **not** update the live site:
+
+| Check | What to verify |
+|-------|----------------|
+| **Branch** | In Render → your service → **Settings → Build & Deploy → Branch**, the branch must be **`master`**. Render’s default is often `main`; this repo uses **`master`**, so a mismatch means pushes never trigger deploys. |
+| **Auto-Deploy** | **Settings → Build & Deploy → Auto-Deploy** should be **Yes**. |
+| **Correct repo** | The service must point at **`matonism/web-shooter`**, not another repo or fork. |
+| **Deploy events** | Open the service → **Events** or **Logs**. A failed build still counts as “synced” but the site stays on the last good deploy — read the build log for errors. |
+| **Manual deploy** | **Manual Deploy → Deploy latest commit** forces a rebuild from the current branch tip. |
+
+### Verify GitHub received your push
+
+Locally:
+
+```bash
+git status          # should say "up to date with 'origin/master'"
+git log origin/master -1 --oneline
+```
+
+On GitHub, confirm the latest commit appears on the **`master`** branch.
 
 ### Render free tier notes
 
-- The service **spins down** after inactivity and takes a moment to wake up.
-- **Room state is in-memory** — rooms are lost when the server restarts or sleeps.
-- For persistent rooms you would need external storage (Redis, etc.).
+- The service **spins down** after ~15 minutes without traffic; the first visit after that can take 30–60 seconds.
+- **Room state is in-memory** — rooms are lost when the server restarts, redeploys, or sleeps.
+- For always-on parties you need a paid instance or another host.
+
+### Why not static hosting only?
+
+Firebase Hosting, S3, and similar serve **files only**. This app needs a **long-lived Node process** for Express + Socket.io + in-memory rooms. Render runs `npm start`, which serves `dist/` and WebSockets from one origin — that is what the client expects in production.
 
 ## Environment Variables
 
@@ -128,7 +195,20 @@ No secrets or API keys are required for basic operation.
 
 ### Troubleshooting
 
+#### Local dev
+
 - **Port 3001 already in use (`EADDRINUSE`)** — A previous `npm start` or dev session is still running. Stop it, or on Windows run `netstat -ano | findstr :3001` then `taskkill /PID <pid> /F`.
 - **"Connecting…" forever** — Make sure the API is running (`npm run dev` starts both, or run `npm start` after a build).
+
+#### In-game
+
 - **Room not found after deploy** — Expected on Render free tier after a spin-down or deploy; create a new room.
 - **Could not rejoin** — Session expired or room was destroyed; join again with the room code.
+
+#### Render deploy did not update after `git push`
+
+1. Confirm the push reached GitHub on branch **`master`** (see [Verify GitHub received your push](#verify-github-received-your-push)).
+2. In Render → service → **Settings**, set **Branch** to **`master`** and **Auto-Deploy** to **Yes**.
+3. Check **Events** / build logs for a failed deploy.
+4. Use **Manual Deploy → Deploy latest commit** to force a rebuild.
+5. If no Render service exists yet, complete [First-time setup (Blueprint)](#first-time-setup-blueprint--recommended) — pushing alone does not create a service.
