@@ -2,8 +2,10 @@ import { useState } from "react";
 import { Lobby } from "./components/Lobby";
 import { Hud } from "./components/Hud";
 import { SnakeHud } from "./components/SnakeHud";
+import { RaceHud } from "./components/RaceHud";
 import { GameCanvas } from "./game/GameCanvas";
 import { SnakeCanvas } from "./game/SnakeCanvas";
+import { RaceCanvas } from "./game/RaceCanvas";
 import { useSocket } from "./hooks/useSocket";
 import { isTouchDevice } from "./utils/touchDevice";
 
@@ -20,11 +22,14 @@ export default function App() {
     setGamePickMode,
     voteGame,
     setSoloMode,
+    setRaceSettings,
     startGame,
     backToLobby,
+    restartRound,
     closeRoom,
     leaveRoom,
     sendInput,
+    sendRacePosition,
   } = useSocket();
 
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -32,8 +37,11 @@ export default function App() {
   const [joinName, setJoinName] = useState("");
   const [joinCode, setJoinCode] = useState("");
 
-  const inGame = roomState?.phase === "playing";
+  const showLobby =
+    roomState?.phase === "lobby" || roomState?.phase === "finished";
+  const inMatch = roomState?.phase === "playing";
   const activeGame = roomState?.playingGameId ?? roomState?.world?.gameId ?? "shooter";
+  const isHost = roomState?.hostId === roomState?.youId;
 
   const handleCreate = () => {
     const trimmed = createName.trim();
@@ -48,6 +56,16 @@ export default function App() {
       <header className="app-header">
         <h1 className="app-title">Shooter Snipes</h1>
         <div className="app-header-actions">
+          {roomState && inMatch && isHost && (
+            <>
+              <button type="button" className="btn-restart-round" onClick={restartRound}>
+                Restart Round
+              </button>
+              <button type="button" className="btn-lobby-return" onClick={backToLobby}>
+                Back to Lobby
+              </button>
+            </>
+          )}
           {roomState && (
             <button type="button" className="btn-leave" onClick={leaveRoom}>
               Leave Room
@@ -178,7 +196,7 @@ export default function App() {
         </div>
       )}
 
-      {roomState && !inGame && (
+      {roomState && showLobby && (
         <Lobby
           roomState={roomState}
           onSelectTeam={selectTeam}
@@ -186,20 +204,31 @@ export default function App() {
           onSetGamePickMode={setGamePickMode}
           onVoteGame={voteGame}
           onSetSoloMode={setSoloMode}
+          onSetRaceSettings={setRaceSettings}
           onStart={startGame}
           onBackToLobby={backToLobby}
+          onRestartRound={restartRound}
           onCloseRoom={closeRoom}
           onLeaveRoom={leaveRoom}
         />
       )}
 
-      {roomState && inGame && (
+      {roomState && inMatch && (
         <div className="game-shell">
           <div className="game-canvas-wrap">
             {activeGame === "snake" ? (
               <>
                 <SnakeCanvas roomState={roomState} onInput={sendInput} />
                 <SnakeHud roomState={roomState} />
+              </>
+            ) : activeGame === "race" ? (
+              <>
+                <RaceCanvas
+                  roomState={roomState}
+                  onInput={sendInput}
+                  onPosition={sendRacePosition}
+                />
+                <RaceHud roomState={roomState} />
               </>
             ) : (
               <>

@@ -2,10 +2,12 @@ export type Team = "red" | "blue";
 export type GamePhase = "lobby" | "playing" | "finished";
 
 import type { GameId, GamePickMode } from "./games.ts";
+import type { RaceSettings } from "./raceSettings.ts";
+import { DEFAULT_RACE_SETTINGS } from "./raceSettings.ts";
 import type { BulletKind } from "./constants.ts";
 import type { PowerupKind } from "./powerups.ts";
 
-export type { BulletKind, PowerupKind, GameId, GamePickMode };
+export type { BulletKind, PowerupKind, GameId, GamePickMode, RaceSettings };
 
 export interface Vec2 {
   x: number;
@@ -91,7 +93,46 @@ export interface SnakeWorldSnapshot extends BaseWorldSnapshot {
   countdownSeconds: number;
 }
 
-export type WorldSnapshot = ShooterWorldSnapshot | SnakeWorldSnapshot;
+export interface RaceRacerState {
+  id: string;
+  name: string;
+  team: Team | null;
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  grounded: boolean;
+  finished: boolean;
+  finishTimeMs: number | null;
+  hasCheckpoint: boolean;
+  respawnCount: number;
+  spawnSlot: number;
+  color: string;
+  /** Last input sequence applied by the server for this racer. */
+  lastInputSeq: number;
+  /** Client-predicted render position (for remote display only). */
+  displayX: number | null;
+  displayY: number | null;
+  displayVx: number | null;
+  displayVy: number | null;
+  displayGrounded: boolean | null;
+}
+
+export interface RaceWorldSnapshot extends BaseWorldSnapshot {
+  gameId: "race";
+  racers: RaceRacerState[];
+  countdownSeconds: number;
+  settings: RaceSettings;
+  levelWidth: number;
+  levelHeight: number;
+  flagX: number;
+  checkpointX: number | null;
+}
+
+export type WorldSnapshot =
+  | ShooterWorldSnapshot
+  | SnakeWorldSnapshot
+  | RaceWorldSnapshot;
 
 export interface PlayerInput {
   seq: number;
@@ -99,6 +140,15 @@ export interface PlayerInput {
   dy: number;
   angle: number;
   fire: boolean;
+}
+
+/** Client render position — relayed to other players (not used for server physics). */
+export interface RacePositionPayload {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  grounded: boolean;
 }
 
 export interface LobbyPlayer {
@@ -128,6 +178,8 @@ export interface RoomStatePublic {
   gameVotes: Record<string, GameId>;
   /** Practice vs AI — host can start alone */
   soloMode: boolean;
+  /** Platform race options (lobby + in-game) */
+  raceSettings: RaceSettings;
   /** Set while playing or after finish */
   playingGameId: GameId | null;
   /** Present when phase is playing or finished */
@@ -172,6 +224,10 @@ export interface SetSoloModePayload {
   enabled: boolean;
 }
 
+export interface SetRaceSettingsPayload {
+  settings: Partial<RaceSettings>;
+}
+
 export interface ClientToServerEvents {
   createRoom: (payload: CreateRoomPayload) => void;
   joinRoom: (payload: JoinRoomPayload) => void;
@@ -181,11 +237,14 @@ export interface ClientToServerEvents {
   setGamePickMode: (payload: SetGamePickModePayload) => void;
   voteGame: (payload: VoteGamePayload) => void;
   setSoloMode: (payload: SetSoloModePayload) => void;
+  setRaceSettings: (payload: SetRaceSettingsPayload) => void;
   startGame: () => void;
   backToLobby: () => void;
+  restartRound: () => void;
   closeRoom: () => void;
   leaveRoom: () => void;
   input: (payload: PlayerInput) => void;
+  racePosition: (payload: RacePositionPayload) => void;
 }
 
 export interface ServerToClientEvents {
@@ -206,4 +265,8 @@ export function isShooterWorld(world: WorldSnapshot): world is ShooterWorldSnaps
 
 export function isSnakeWorld(world: WorldSnapshot): world is SnakeWorldSnapshot {
   return world.gameId === "snake";
+}
+
+export function isRaceWorld(world: WorldSnapshot): world is RaceWorldSnapshot {
+  return world.gameId === "race";
 }

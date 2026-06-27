@@ -99,6 +99,38 @@ input {
   border-color: var(--muted);
 }
 
+.btn-lobby-return {
+  background: transparent;
+  border: 1px solid var(--accent-dim);
+  color: var(--accent);
+  border-radius: 6px;
+  padding: 0.35rem 0.65rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.btn-lobby-return:hover {
+  background: rgba(0, 229, 255, 0.08);
+  border-color: var(--accent);
+}
+
+.btn-restart-round {
+  background: transparent;
+  border: 1px solid #ffd700;
+  color: #ffd700;
+  border-radius: 6px;
+  padding: 0.35rem 0.65rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.btn-restart-round:hover {
+  background: rgba(255, 215, 0, 0.1);
+  border-color: #ffe566;
+}
+
 .lobby {
   flex: 1;
   display: flex;
@@ -578,6 +610,99 @@ button.btn:disabled {
   width: 1rem;
   height: 1rem;
   accent-color: var(--accent);
+}
+
+.game-canvas--race {
+  max-height: min(78vh, 400px);
+}
+
+.race-jump-btn {
+  position: fixed;
+  right: max(16px, env(safe-area-inset-right));
+  bottom: max(24px, env(safe-area-inset-bottom));
+  z-index: 120;
+  padding: 1rem 1.25rem;
+  border: none;
+  border-radius: 12px;
+  background: rgba(68, 255, 204, 0.2);
+  border: 2px solid var(--accent);
+  color: var(--accent);
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 0.85rem;
+  letter-spacing: 0.08em;
+  touch-action: manipulation;
+}
+
+.race-debug-btn {
+  position: fixed;
+  left: max(16px, env(safe-area-inset-left));
+  bottom: max(24px, env(safe-area-inset-bottom));
+  z-index: 120;
+  padding: 0.55rem 0.85rem;
+  border-radius: 10px;
+  background: rgba(6, 8, 16, 0.88);
+  border: 2px solid rgba(255, 204, 68, 0.75);
+  color: #ffcc44;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 0.72rem;
+  letter-spacing: 0.05em;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.race-debug-btn[aria-pressed="true"] {
+  background: rgba(255, 204, 68, 0.18);
+  border-color: #ffcc44;
+  color: #ffe9a8;
+}
+
+.race-settings-section {
+  margin: 1rem 0;
+  text-align: left;
+}
+
+.race-settings-section h3 {
+  margin: 0 0 0.75rem;
+  font-size: 0.95rem;
+}
+
+.race-settings-group {
+  margin-bottom: 1rem;
+}
+
+.race-settings-label {
+  display: block;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--muted);
+  margin-bottom: 0.4rem;
+}
+
+.race-visibility-grid {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.race-vis-card {
+  padding: 0.65rem 0.85rem;
+}
+
+.hud-race-status {
+  font-family: var(--font-display);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+}
+
+.hud-race-mode {
+  margin-top: 0.25rem;
+  font-size: 0.75rem;
+}
+
+.race-finish-banner {
+  background: rgba(68, 255, 204, 0.15);
+  color: var(--accent);
 }
 
 .connect-overlay {

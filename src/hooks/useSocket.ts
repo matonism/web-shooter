@@ -4,6 +4,7 @@ import type {
   ClientToServerEvents,
   GameId,
   GamePickMode,
+  RaceSettings,
   RejoinSession,
   RoomStatePublic,
   ServerToClientEvents,
@@ -138,8 +139,13 @@ export function useSocket() {
     getSocket().emit("setSoloMode", { enabled });
   };
 
+  const setRaceSettings = (settings: Partial<RaceSettings>) => {
+    getSocket().emit("setRaceSettings", { settings });
+  };
+
   const startGame = () => getSocket().emit("startGame");
   const backToLobby = () => getSocket().emit("backToLobby");
+  const restartRound = () => getSocket().emit("restartRound");
   const closeRoom = () => getSocket().emit("closeRoom");
   const leaveRoom = () => {
     clearRejoin();
@@ -148,6 +154,12 @@ export function useSocket() {
   };
   const sendInput = (input: Parameters<ClientToServerEvents["input"]>[0]) => {
     getSocket().emit("input", input);
+  };
+
+  const sendRacePosition = (
+    position: Parameters<ClientToServerEvents["racePosition"]>[0],
+  ) => {
+    getSocket().emit("racePosition", position);
   };
 
   return {
@@ -162,10 +174,13 @@ export function useSocket() {
     setGamePickMode,
     voteGame,
     setSoloMode,
+    setRaceSettings,
     startGame,
     backToLobby,
+    restartRound,
     closeRoom,
     leaveRoom,
     sendInput,
+    sendRacePosition,
   };
 }

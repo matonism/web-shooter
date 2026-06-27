@@ -1,6 +1,7 @@
 import type { GameId, GamePickMode } from "../shared/games.ts";
 import { GAME_CATALOG, getGameDef } from "../shared/games.ts";
 import { teamSize } from "../shared/constants.ts";
+import type { RaceSettings } from "../shared/raceSettings.ts";
 import type { LobbyPlayer } from "../shared/types.ts";
 
 export interface GamePickState {
@@ -8,6 +9,7 @@ export interface GamePickState {
   gamePickMode: GamePickMode;
   gameVotes: Map<string, GameId>;
   soloMode: boolean;
+  raceSettings: RaceSettings;
 }
 
 export function resolveGameId(state: GamePickState): GameId {
@@ -83,7 +85,12 @@ export function canStartRoom(state: GamePickState, lobby: LobbyPlayer[]): boolea
 
   const gameId = previewGameId(state) ?? state.selectedGameId;
   const def = getGameDef(gameId);
-  if (lobby.length < def.minPlayers && lobby.length < minPlayers) return false;
+
+  if (gameId === "race" && state.raceSettings.scoringMode === "team") {
+    const red = teamSize(lobby, "red");
+    const blue = teamSize(lobby, "blue");
+    return red >= 1 && blue >= 1 && lobby.filter((p) => p.team).length >= 2;
+  }
 
   if (def.requiresTeams) {
     const red = teamSize(lobby, "red");

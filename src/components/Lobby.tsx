@@ -1,6 +1,10 @@
 import { teamSize } from "@shared/constants";
 import { GAME_CATALOG, getGameDef } from "@shared/games";
-import type { GameId, GamePickMode, RoomStatePublic, Team } from "@shared/types";
+import {
+  RACE_SCORING_OPTIONS,
+  RACE_VISIBILITY_OPTIONS,
+} from "@shared/raceSettings";
+import type { GameId, GamePickMode, RaceSettings, RoomStatePublic, Team } from "@shared/types";
 
 interface LobbyProps {
   roomState: RoomStatePublic;
@@ -9,8 +13,10 @@ interface LobbyProps {
   onSetGamePickMode: (mode: GamePickMode) => void;
   onVoteGame: (gameId: GameId) => void;
   onSetSoloMode: (enabled: boolean) => void;
+  onSetRaceSettings: (settings: Partial<RaceSettings>) => void;
   onStart: () => void;
   onBackToLobby: () => void;
+  onRestartRound: () => void;
   onCloseRoom: () => void;
   onLeaveRoom: () => void;
 }
@@ -66,6 +72,13 @@ function canStart(roomState: RoomStatePublic): boolean {
 
   const gameId = previewGameId(roomState) ?? roomState.selectedGameId;
   const def = getGameDef(gameId);
+
+  if (gameId === "race" && roomState.raceSettings.scoringMode === "team") {
+    const red = teamSize(roomState.players, "red");
+    const blue = teamSize(roomState.players, "blue");
+    return red >= 1 && blue >= 1 && roomState.players.filter((p) => p.team).length >= 2;
+  }
+
   if (def.requiresTeams) {
     const red = teamSize(roomState.players, "red");
     const blue = teamSize(roomState.players, "blue");
@@ -81,8 +94,10 @@ export function Lobby({
   onSetGamePickMode,
   onVoteGame,
   onSetSoloMode,
+  onSetRaceSettings,
   onStart,
   onBackToLobby,
+  onRestartRound,
   onCloseRoom,
   onLeaveRoom,
 }: LobbyProps) {
@@ -100,6 +115,14 @@ export function Lobby({
     roomState.soloMode &&
     roomState.gamePickMode !== "random" &&
     (effectiveGame?.requiresTeams ?? effectiveGameId === null);
+  const showTeamsRace =
+    !roomState.soloMode &&
+    roomState.gamePickMode !== "random" &&
+    effectiveGameId === "race" &&
+    roomState.raceSettings.scoringMode === "team";
+  const showRaceSettings =
+    roomState.gamePickMode !== "random" &&
+    (effectiveGameId === "race" || roomState.selectedGameId === "race");
   const startReady = canStart(roomState);
   const myVote = roomState.gameVotes[roomState.youId];
 
@@ -132,7 +155,10 @@ export function Lobby({
           </p>
           {isHost ? (
             <div className="btn-row">
-              <button type="button" className="btn btn-primary" onClick={onBackToLobby}>
+              <button type="button" className="btn btn-primary" onClick={onRestartRound}>
+                Restart Round
+              </button>
+              <button type="button" className="btn btn-secondary" onClick={onBackToLobby}>
                 Back to Lobby
               </button>
               <button type="button" className="btn btn-secondary" onClick={onLeaveRoom}>
@@ -225,6 +251,52 @@ export function Lobby({
           </div>
         </div>
 
+        {showRaceSettings && (
+          <div className="race-settings-section">
+            <h3>Race options</h3>
+            <div className="race-settings-group">
+              <span className="race-settings-label">Scoring</span>
+              <div className="pick-mode-tabs">
+                {RACE_SCORING_OPTIONS.map((opt) => (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    className={`pick-mode-tab ${roomState.raceSettings.scoringMode === opt.id ? "active" : ""}`}
+                    disabled={!isHost}
+                    onClick={() => onSetRaceSettings({ scoringMode: opt.id })}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+              <p className="hint">
+                {
+                  RACE_SCORING_OPTIONS.find(
+                    (o) => o.id === roomState.raceSettings.scoringMode,
+                  )?.desc
+                }
+              </p>
+            </div>
+            <div className="race-settings-group">
+              <span className="race-settings-label">Other racers on your screen</span>
+              <div className="race-visibility-grid">
+                {RACE_VISIBILITY_OPTIONS.map((opt) => (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    className={`game-card race-vis-card ${roomState.raceSettings.visibility === opt.id ? "selected" : ""}`}
+                    disabled={!isHost}
+                    onClick={() => onSetRaceSettings({ visibility: opt.id })}
+                  >
+                    <span className="game-card-name">{opt.label}</span>
+                    <span className="game-card-desc">{opt.desc}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
         {isHost && roomState.players.length === 1 && (
           <label className="solo-toggle">
             <input
@@ -250,14 +322,14 @@ export function Lobby({
                 {p.id === roomState.hostId ? " ★" : ""}
                 {!p.connected ? " (away)" : ""}
               </span>
-              {(showTeams || showTeamsSolo) && (
+              {(showTeams || showTeamsSolo || showTeamsRace) && (
                 <span className={`team-badge ${p.team ?? "none"}`}>{p.team ?? "—"}</span>
               )}
             </li>
           ))}
         </ul>
 
-        {(showTeams || showTeamsSolo) && (
+        {(showTeams || showTeamsSolo || showTeamsRace) && (
           <div className="team-picker">
             <button
               type="button"

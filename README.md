@@ -1,6 +1,6 @@
 # Shooter Snipes
 
-A browser-based 3v3 top-down arena shooter for up to six players. Create or join a room, pick Red or Blue, and fight in real time over WebSockets. The server runs an authoritative 30 Hz game loop; clients predict local movement and interpolate remote players for smooth play.
+A browser-based multiplayer game suite for up to six players in a shared room. Create or join with a room code, pick a game (Arena Shooter, Multiplayer Snake, or Platform Race), and play in real time over WebSockets. The server runs an authoritative 30 Hz simulation for each game; clients predict local input and interpolate remote players for smooth play.
 
 ## Tech Stack
 
@@ -8,27 +8,48 @@ A browser-based 3v3 top-down arena shooter for up to six players. Create or join
 |-------|--------------|
 | **Frontend** | React 19, TypeScript, Vite, HTML5 Canvas |
 | **Backend** | Node.js 20, Express, Socket.io |
-| **Shared** | TypeScript types and game constants (`shared/`) |
+| **Shared** | TypeScript types, constants, and game logic (`shared/`) |
 | **Hosting** | [Render](https://render.com) (Blueprint via `render.yaml`) |
 
 ## Project Structure
 
 ```
 shooter-snipes/
-├── shared/              Types and constants shared by client and server
-│   ├── types.ts         Socket events, room state, world snapshots
-│   └── constants.ts     Arena size, tick rate, player/bullet stats
+├── shared/                  Types and logic shared by client and server
+│   ├── types.ts             Socket events, room state, world snapshots
+│   ├── constants.ts         Tick rate, arena size, shooter stats
+│   ├── games.ts             Game catalog (shooter, snake, race)
+│   ├── movement.ts          Shared movement helpers
+│   ├── powerups.ts          Arena Shooter powerup definitions
+│   ├── snakeConstants.ts    Snake grid and spawn slots
+│   ├── raceConstants.ts     Platform race physics and tile ids
+│   ├── raceLevel.ts         Race course (312×15 tiles, hazards, checkpoint)
+│   ├── racePhysics.ts       Racer movement and collision
+│   └── raceSettings.ts      Race scoring and visibility options
 ├── server/
-│   ├── index.ts         Express + Socket.io, rooms, lobby handlers
-│   └── gameSimulation.ts Authoritative game loop and collision
+│   ├── index.ts             Express + Socket.io, rooms, lobby handlers
+│   ├── roomSimulation.ts    Pluggable simulation interface
+│   ├── createSimulation.ts  Factory for game sims
+│   ├── gameSimulation.ts    Arena Shooter authoritative loop
+│   ├── snakeSimulation.ts   Multiplayer Snake sim
+│   ├── raceSimulation.ts    Platform Race sim
+│   ├── gamePick.ts          Host / vote / random game selection
+│   ├── soloBots.ts          AI bots for solo practice
+│   ├── shooterAi.ts         Shooter bot logic
+│   ├── snakeAi.ts           Snake bot logic
+│   └── raceAi.ts            Race bot logic
 ├── src/
-│   ├── game/            Canvas renderer, client prediction, interpolation
-│   ├── components/      Lobby, HUD
-│   ├── hooks/           Socket connection and rejoin logic
-│   ├── App.tsx          Main UI shell
-│   └── main.tsx         React entry point
-├── render.yaml          Render deployment blueprint
-├── vite.config.ts       Vite + React + @shared alias
+│   ├── game/                Canvas renderers and client prediction
+│   │   ├── clientGame.ts    Shooter client (prediction + interpolation)
+│   │   ├── GameCanvas.tsx
+│   │   ├── snakeClientGame.ts / SnakeCanvas.tsx / snakeRenderer.ts
+│   │   └── raceClientGame.ts / RaceCanvas.tsx / raceRenderer.ts
+│   ├── components/          Lobby, HUDs, mobile controls
+│   ├── hooks/               Socket connection and rejoin logic
+│   ├── App.tsx              Main UI shell
+│   └── main.tsx             React entry point
+├── render.yaml              Render deployment blueprint
+├── vite.config.ts           Vite + React + @shared alias
 └── index.html
 ```
 
@@ -66,26 +87,50 @@ Open `http://localhost:5173` in the browser. Use multiple tabs or windows to tes
 | `npm run preview` | Preview the Vite build (client only; API still needed for full app) |
 | `npm start` | Production server — serves `dist/` and Socket.io on one port |
 
+There is no dedicated test script in `package.json`.
+
 ## How to Play
 
-1. Enter your name and **Create Room** or **Join Room** with a 6-character code.
-2. Pick **Red** or **Blue** (up to 3 players per team, 6 total).
-3. The host clicks **Start Match** once at least one player is on each team.
-4. **WASD** — move · **Mouse** — aim · **Click** — fire
-5. On **mobile/touch**: left stick to move · **tap/hold the arena** to aim & shoot (same as mouse on desktop)
-6. Last team standing wins. Eliminated players stay on the board but cannot act.
+### Lobby
 
-### Game rules (defaults)
+1. Enter your name and **Create Room** or **Join Room** with a 6-character code.
+2. The host configures how the game is chosen:
+   - **Host picks** — host selects the game from the catalog
+   - **Vote** — players vote; host starts when ready
+   - **Random** — a random game is chosen when the host starts
+3. Optional **Practice vs AI** (solo mode) — when alone, the host can enable bots and start without other humans.
+4. The host clicks **Start Match** when the room meets the selected game’s requirements.
+5. During a match, the host can click **Back to Lobby** in the header to end the round and return everyone to the lobby.
+
+### Game catalog
+
+| Game | Description | Teams | Solo vs AI |
+|------|-------------|-------|------------|
+| **Arena Shooter** | 3v3 top-down blaster with powerups | Red / Blue (up to 3 per team) | Yes |
+| **Multiplayer Snake** | Grow your snake — last one slithering wins | No | Yes |
+| **Platform Race** | Side-scroll sprint to the flag — same course, per-player camera | Optional (FFA or team scoring) | Yes |
+
+---
+
+### Arena Shooter
+
+1. Pick **Red** or **Blue** (up to 3 players per team, 6 total).
+2. The host starts once at least one player is on each team (or solo mode is enabled).
+3. **WASD** — move · **Mouse** — aim · **Click** — fire
+4. On **mobile/touch**: left stick to move · **tap/hold the arena** to aim & shoot (same as mouse on desktop)
+5. Last team standing wins. Eliminated players stay on the board but cannot act.
+
+#### Game rules (defaults)
 
 | Setting | Value |
 |---------|-------|
 | Max players | 6 (3 per team) |
-| Health | 100 HP |
-| Bullet damage | 25 (4 hits to eliminate) |
+| Health | 200 HP |
+| Bullet damage | 25 (8 hits to eliminate) |
 | Server tick rate | 30 Hz |
 | Respawn | None (elimination mode) |
 
-### Powerups
+#### Powerups
 
 Powerups spawn in the arena every **12 seconds** (up to 2 on the field). Walk over one to pick it up.
 
@@ -99,12 +144,52 @@ Powerups spawn in the arena every **12 seconds** (up to 2 on the field). Walk ov
 
 New pickups stack — timed effects combine, duplicate pickups extend duration, and shields add capacity.
 
+---
+
+### Multiplayer Snake
+
+1. No team selection — free-for-all up to 6 snakes.
+2. A **3-second countdown** runs before snakes move.
+3. **WASD** or **arrow keys** to change direction (cannot reverse 180° instantly).
+4. On **mobile/touch**: use the move stick for direction.
+5. Eat pellets to grow; hitting a wall, another snake, or yourself eliminates you. Last snake alive wins.
+
+---
+
+### Platform Race
+
+1. All racers run the **same course** (~312 tiles / 3× the original length) with a **per-player camera**.
+2. A **3-second countdown** locks movement before the race starts.
+3. **A/D** or **arrow keys** to move · **Space** or **W** to jump
+4. On **mobile/touch**: move stick + **JUMP** button
+5. **First to the flag** wins (team mode: first finisher wins for their team).
+
+#### Race features
+
+| Feature | Details |
+|---------|---------|
+| **Fair start** | All racers share the same start-line X — no horizontal head start |
+| **Jump limit** | Max vertical reach ≈ **2 tiles**; course geometry respects this |
+| **Hazards** | Spike tiles (`!`) — touch to respawn |
+| **Checkpoint** | Midway checkpoint — touch once; death respawns there instead of the start |
+| **Fall death** | Falling off the map respawns at checkpoint (if reached) or start |
+
+#### Host race settings (lobby)
+
+| Setting | Options |
+|---------|---------|
+| **Scoring** | Free-for-all or team race |
+| **Visibility** | Full sprites, ghosts (faded), minimap dots, or hidden (solo view) |
+
+---
+
 ## Architecture
 
-- **Authoritative server** — movement, firing, and hit detection run on the server at 30 Hz.
-- **Client-side prediction** — your own inputs apply immediately with server reconciliation.
-- **Interpolation** — remote players render between server snapshots for smooth motion.
+- **Authoritative server** — each game’s simulation runs on the server at 30 Hz via a pluggable `RoomSimulation` interface.
+- **Client-side prediction** — local inputs apply immediately; the server reconciles position (soft correction for shooter and race, with input replay on large race errors).
+- **Interpolation** — remote entities render between server snapshots (100 ms delay) for smooth motion.
 - **Reconnection** — disconnected players keep their slot for 30 minutes; refresh rejoins via a token stored in `localStorage`.
+- **In-memory rooms** — room state lives in the Node process; idle rooms are destroyed after 10 minutes without activity.
 
 Socket events and state shapes live in `shared/types.ts`.
 

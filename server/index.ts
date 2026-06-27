@@ -6,11 +6,13 @@ import { fileURLToPath } from "node:url";
 import { Server, type Socket } from "socket.io";
 import { MAX_PER_TEAM, MAX_PLAYERS, TICK_MS } from "../shared/constants.ts";
 import type { GameId } from "../shared/games.ts";
+import { DEFAULT_RACE_SETTINGS } from "../shared/raceSettings.ts";
 import type {
   ClientToServerEvents,
   GamePhase,
   GamePickMode,
   LobbyPlayer,
+  RaceSettings,
   RoomStatePublic,
   ServerToClientEvents,
   Team,
@@ -22,6 +24,7 @@ import {
   previewGameId,
   resolveGameId,
 } from "./gamePick.ts";
+import { RaceSimulation } from "./raceSimulation.ts";
 import { addSoloBots } from "./soloBots.ts";
 import type { RoomSimulation } from "./roomSimulation.ts";
 
@@ -59,6 +62,7 @@ interface Room {
   gamePickMode: GamePickMode;
   gameVotes: Map<string, GameId>;
   soloMode: boolean;
+  raceSettings: RaceSettings;
   playingGameId: GameId | null;
   simulation: RoomSimulation | null;
   gameLoop?: ReturnType<typeof setInterval>;
@@ -138,6 +142,7 @@ function publicState(room: Room, youId: string): RoomStatePublic {
     gamePickMode: room.gamePickMode,
     gameVotes: gameVotesRecord(room.gameVotes),
     soloMode: room.soloMode,
+    raceSettings: room.raceSettings,
     playingGameId: room.playingGameId,
     youId,
     yourToken: you?.token ?? "",
@@ -193,11 +198,15 @@ function bootstrapSimulation(room: Room, gameId: GameId) {
     room.simulation.addPlayer(id, p.name);
     if (p.team) room.simulation.assignTeam(id, p.team);
   }
+  if (room.simulation instanceof RaceSimulation) {
+    room.simulation.setRaceSettings(room.raceSettings);
+  }
   if (room.soloMode) {
     addSoloBots(
       room.simulation,
       gameId,
       [...room.players.values()].map((p) => ({ team: p.team })),
+      gameId === "race" ? room.raceSettings : undefined,
     );
   }
   room.simulation.reset();
@@ -304,6 +313,7 @@ io.on("connection", (socket) => {
       gamePickMode: "host",
       gameVotes: new Map(),
       soloMode: false,
+      raceSettings: { ...DEFAULT_RACE_SETTINGS },
       playingGameId: null,
       simulation: null,
       lastActivityAt: Date.now(),
@@ -368,7 +378,7 @@ io.on("connection", (socket) => {
 
     const preview = previewGameId(room) ?? room.selectedGameId;
     if (preview === "snake") {
-      socket.emit("errorMsg", "Team pick is only for Arena Shooter.");
+      socket.emit("errorMsg", "Team pick is only for team-based games.");
       return;
     }
 
@@ -426,6 +436,17 @@ io.on("connection", (socket) => {
       return;
     }
     room.soloMode = enabled;
+    touchRoom(room);
+    broadcastRoom(room);
+  });
+
+  socket.on("setRaceSettings", ({ settings }) => {
+    const code = socketRoom.get(socket.id);
+    if (!code) return;
+    const room = getRoom(code);
+    if (!room || room.hostId !== socket.id || room.phase !== "lobby") return;
+    if (settings.scoringMode) room.raceSettings.scoringMode = settings.scoringMode;
+    if (settings.visibility) room.raceSettings.visibility = settings.visibility;
     touchRoom(room);
     broadcastRoom(room);
   });
@@ -488,6 +509,21 @@ io.on("connection", (socket) => {
     broadcastRoom(room);
   });
 
+  socket.on("restartRound", () => {
+    const code = socketRoom.get(socket.id);
+    if (!code) return;
+    const room = getRoom(code);
+    if (!room || room.hostId !== socket.id) return;
+    if (!room.simulation || !room.playingGameId) return;
+    if (room.phase !== "playing" && room.phase !== "finished") return;
+
+    room.phase = "playing";
+    room.simulation.reset();
+    startGameLoop(room);
+    touchRoom(room);
+    broadcastRoom(room);
+  });
+
   socket.on("closeRoom", () => {
     const code = socketRoom.get(socket.id);
     if (!code) return;
@@ -521,6 +557,15 @@ io.on("connection", (socket) => {
     const room = getRoom(code);
     if (!room || room.phase !== "playing" || !room.simulation) return;
     room.simulation.queueInput(socket.id, payload);
+    touchRoom(room);
+  });
+
+  socket.on("racePosition", (payload) => {
+    const code = socketRoom.get(socket.id);
+    if (!code) return;
+    const room = getRoom(code);
+    if (!room || room.phase !== "playing" || room.simulation?.gameId !== "race") return;
+    (room.simulation as RaceSimulation).setDisplayPosition(socket.id, payload);
     touchRoom(room);
   });
 

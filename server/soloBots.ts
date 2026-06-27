@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { GameId } from "../shared/games.ts";
+import type { RaceSettings } from "../shared/raceSettings.ts";
 import { SOLO } from "../shared/solo.ts";
 import type { Team } from "../shared/types.ts";
 import type { RoomSimulation } from "./roomSimulation.ts";
@@ -14,6 +15,7 @@ export function addSoloBots(
   sim: RoomSimulation,
   gameId: GameId,
   humans: HumanPlayer[],
+  raceSettings?: RaceSettings,
 ): void {
   if (gameId === "shooter") {
     const humanTeam = humans.find((h) => h.team)?.team ?? "red";
@@ -31,6 +33,19 @@ export function addSoloBots(
     for (let i = 0; i < SOLO.snakeBots; i++) {
       const id = `bot:${randomUUID()}`;
       sim.addPlayer(id, `Bot ${i + 1}`, true);
+    }
+    return;
+  }
+
+  if (gameId === "race") {
+    const teamMode = raceSettings?.scoringMode === "team";
+    const humanTeam = humans.find((h) => h.team)?.team ?? "red";
+    for (let i = 0; i < SOLO.raceBots; i++) {
+      const id = `bot:${randomUUID()}`;
+      sim.addPlayer(id, `Bot ${i + 1}`, true);
+      if (teamMode) {
+        sim.assignTeam(id, humanTeam === "red" ? "blue" : "red");
+      }
     }
   }
 }
